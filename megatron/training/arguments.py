@@ -1450,6 +1450,8 @@ def _add_data_args(parser):
     group.add_argument('--valid-data-path', nargs='*', default=None,
                        help='The weight and prefix list for an independent validation dataset. '
                        'Follows the same pattern rules as --data-path.')
+    group.add_argument('--multiple-valid-sets', action='store_true',
+                       help='multiple separated validation steps')  
     group.add_argument('--test-data-path', nargs='*', default=None,
                        help='The weight and prefix list for an independent test dataset. '
                        'Follows the same pattern rules as --data-path.')

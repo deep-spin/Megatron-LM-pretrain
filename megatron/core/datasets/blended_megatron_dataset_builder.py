@@ -232,52 +232,61 @@ class BlendedMegatronDatasetBuilder(object):
                 blend = self.config.blend_per_split[i]
                 if blend is not None:
                     prefixes, weights = blend
-                    if weights is not None:
-                        weights = normalize(weights)
-
-                    # Blend consists of a sigle prefix
-                    if len(prefixes) == 1:
-                        blended_datasets[i] = self._build_megatron_dataset_splits(
-                            prefixes[0], split_spoof, sizes_spoof
-                        )[i]
-                        continue
-
-                    # Build mid-level datasets
-                    if weights is None:
-                        sizes_per_dataset = [[None for split in Split] for prefix in prefixes]
+                    if self.config.multiple_valid_sets and not isinstance(weights[0], (int, float)):
+                        dataset_names = weights
+                        dataset_dict = dict()
+                        for dataset_i in range(len(prefixes)):
+                            dataset_dict[dataset_names[dataset_i]] = self._build_megatron_dataset_splits(
+                                prefixes[dataset_i], split_spoof, sizes_spoof)[i]
+                        
+                        blended_datasets[i] = dataset_dict
                     else:
-                        sizes_per_dataset = _get_size_per_split_per_dataset(weights, sizes_spoof)
+                        if weights is not None:
+                            weights = normalize(weights)
 
-                    # build each dataset in parallel
-                    megatron_datasets = self._build_megatron_datasets_parallel(
-                        prefixes, split_spoof, sizes_per_dataset
-                    )[i]
+                        # Blend consists of a sigle prefix
+                        if len(prefixes) == 1:
+                            blended_datasets[i] = self._build_megatron_dataset_splits(
+                                prefixes[0], split_spoof, sizes_spoof
+                            )[i]
+                            continue
 
-                    # Build top-level dataset
-                    if weights is not None and self.sizes[i] is not None:
-                        size = list(map(sum, zip(*sizes_per_dataset)))[i]
-                    elif weights is None:
-                        try:
-                            weights = [
-                                len(megatron_dataset) for megatron_dataset in megatron_datasets
-                            ]
-                        except TypeError:
-                            weights = [0 for _ in prefixes]
-                        if self.sizes[i] is not None:
-                            size = min(self.sizes[i], sum(weights))
+                        # Build mid-level datasets
+                        if weights is None:
+                            sizes_per_dataset = [[None for split in Split] for prefix in prefixes]
                         else:
-                            size = None  # => the size will be sum(weights)
-                    else:
-                        raise RuntimeError
-                    blended_datasets[i] = self.build_generic_dataset(
-                        BlendedDataset,
-                        self.is_built_on_rank,
-                        True,  # synchronize_ranks, default behavior to build on rank-0 first
-                        megatron_datasets,
-                        weights,
-                        size,
-                        self.config,
-                    )
+                            sizes_per_dataset = _get_size_per_split_per_dataset(weights, sizes_spoof)
+
+                        # build each dataset in parallel
+                        megatron_datasets = self._build_megatron_datasets_parallel(
+                            prefixes, split_spoof, sizes_per_dataset
+                        )[i]
+
+                        # Build top-level dataset
+                        if weights is not None and self.sizes[i] is not None:
+                            size = list(map(sum, zip(*sizes_per_dataset)))[i]
+                        elif weights is None:
+                            try:
+                                weights = [
+                                    len(megatron_dataset) for megatron_dataset in megatron_datasets
+                                ]
+                            except TypeError:
+                                weights = [0 for _ in prefixes]
+                            if self.sizes[i] is not None:
+                                size = min(self.sizes[i], sum(weights))
+                            else:
+                                size = None  # => the size will be sum(weights)
+                        else:
+                            raise RuntimeError
+                        blended_datasets[i] = self.build_generic_dataset(
+                            BlendedDataset,
+                            self.is_built_on_rank,
+                            True,  # synchronize_ranks, default behavior to build on rank-0 first
+                            megatron_datasets,
+                            weights,
+                            size,
+                            self.config,
+                        )
 
             return blended_datasets
 

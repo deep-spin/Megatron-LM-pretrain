@@ -74,7 +74,7 @@ def get_blend_from_list(
             try:
                 weight = float(rwpd)
             except ValueError:
-                weight = None
+                weight = rwpd
             weight_per_dataset.append(weight)
 
         is_none = map(lambda _: _ is None, weight_per_dataset)
