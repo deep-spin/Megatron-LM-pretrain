@@ -49,6 +49,8 @@ def normalize(weights: List[float]) -> List[float]:
 
 def get_blend_from_list(
     blend: Optional[List[str]],
+    multiple_valid_sets: Optional[bool],
+    dataset: Optional[str]
 ) -> Optional[Tuple[List[str], Optional[List[float]]]]:
     """Get the megatron.core.datasets.blended_megatron_dataset_config.BlendedMegatronDatasetConfig blend from the blend list
     
@@ -64,25 +66,43 @@ def get_blend_from_list(
     if len(blend) % 2 == 1:
         weight_per_dataset = None
         raw_prefix_per_dataset = blend
+
+        prefix_per_dataset = [rppd.strip() for rppd in raw_prefix_per_dataset]
+
+        return prefix_per_dataset, weight_per_dataset
+    
     else:
-        raw_weight_per_dataset, raw_prefix_per_dataset = zip(
+    
+        if multiple_valid_sets and dataset in ['valid', 'test']:
+            raw_dataset_name, raw_prefix_per_dataset = zip(
             *[(blend[i], blend[i + 1]) for i in range(0, len(blend), 2)]
-        )
+             )
+            
+            dataset_name = []
+            for name in raw_dataset_name:
+                dataset_name.append(name)
+            prefix_per_dataset = [rppd.strip() for rppd in raw_prefix_per_dataset]
 
-        weight_per_dataset = []
-        for rwpd in raw_weight_per_dataset:
-            try:
-                weight = float(rwpd)
-            except ValueError:
-                weight = rwpd
-            weight_per_dataset.append(weight)
+            return prefix_per_dataset, dataset_name
+        
+        else:
+            raw_weight_per_dataset, raw_prefix_per_dataset = zip(
+            *[(blend[i], blend[i + 1]) for i in range(0, len(blend), 2)]
+             )
+            weight_per_dataset = []
+            for rwpd in raw_weight_per_dataset:
+                try:
+                    weight = float(rwpd)
+                except ValueError:
+                    weight = None
+                weight_per_dataset.append(weight)
 
-        is_none = map(lambda _: _ is None, weight_per_dataset)
-        if any(is_none):
-            assert all(is_none)
-            weight_per_dataset = None
-            raw_prefix_per_dataset = blend
+            is_none = map(lambda _: _ is None, weight_per_dataset)
+            if any(is_none):
+                assert all(is_none)
+                weight_per_dataset = None
+                raw_prefix_per_dataset = blend
 
-    prefix_per_dataset = [rppd.strip() for rppd in raw_prefix_per_dataset]
+            prefix_per_dataset = [rppd.strip() for rppd in raw_prefix_per_dataset]
 
-    return prefix_per_dataset, weight_per_dataset
+            return prefix_per_dataset, weight_per_dataset

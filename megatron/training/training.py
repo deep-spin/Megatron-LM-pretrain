@@ -1352,6 +1352,11 @@ def evaluate_and_print_results(prefix, forward_step_func,
                                         iteration)
                         writer.add_scalar(f'validation ppl vs samples/{key}/{name}',
                                         ppl, args.consumed_train_samples)
+                    if wandb_writer and is_last_rank():
+                        wandb_writer.log({
+                        f'validation ppl/{key}/{name}': total_loss_dict[key].item()},
+                        iteration)
+
             string+='\n'
     else:
         total_loss_dict, collected_non_loss_data, timelimit = evaluate(

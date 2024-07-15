@@ -231,9 +231,8 @@ class BlendedMegatronDatasetBuilder(object):
                 # Blend is provided for the split
                 blend = self.config.blend_per_split[i]
                 if blend is not None:
-                    prefixes, weights = blend
-                    if self.config.multiple_valid_sets and not isinstance(weights[0], (int, float)):
-                        dataset_names = weights
+                    if self.config.multiple_valid_sets and not isinstance(blend[1][0], (int, float)):
+                        prefixes, dataset_names = blend
                         dataset_dict = dict()
                         for dataset_i in range(len(prefixes)):
                             dataset_dict[dataset_names[dataset_i]] = self._build_megatron_dataset_splits(
@@ -241,6 +240,8 @@ class BlendedMegatronDatasetBuilder(object):
                         
                         blended_datasets[i] = dataset_dict
                     else:
+                        
+                        prefixes, weights = blend
                         if weights is not None:
                             weights = normalize(weights)
 

@@ -195,11 +195,11 @@ def core_gpt_dataset_config_from_args(args):
     return GPTDatasetConfig(
         random_seed=args.seed,
         sequence_length=args.seq_length,
-        blend=get_blend_from_list(args.data_path),
+        blend=get_blend_from_list(args.data_path, args.multiple_valid_sets, dataset='data'),
         blend_per_split=[
-            get_blend_from_list(args.train_data_path),
-            get_blend_from_list(args.valid_data_path),
-            get_blend_from_list(args.test_data_path)
+            get_blend_from_list(args.train_data_path, args.multiple_valid_sets, dataset='train'),
+            get_blend_from_list(args.valid_data_path, args.multiple_valid_sets, dataset='valid'),
+            get_blend_from_list(args.test_data_path, args.multiple_valid_sets, dataset='test')
         ],
         split=args.split,
         num_dataset_builder_threads=args.num_dataset_builder_threads,
