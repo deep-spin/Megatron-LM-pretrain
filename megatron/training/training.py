@@ -1324,33 +1324,68 @@ def evaluate_and_print_results(prefix, forward_step_func,
 
     wandb_writer = get_wandb_writer()
 
-    total_loss_dict, collected_non_loss_data, timelimit = evaluate(
-        forward_step_func, data_iterator, model,
-        process_non_loss_data_func, config, verbose)
-    # Timelimit hit during evaluation
-    if timelimit:
-        return
-    string = ' validation loss at {} | '.format(prefix)
-    for key in total_loss_dict:
-        string += '{} value: {:.6E} | '.format(key, total_loss_dict[key].item())
-        ppl = math.exp(min(20, total_loss_dict[key].item()))
-        string += '{} PPL: {:.6E} | '.format(key, ppl)
-        if writer:
-            writer.add_scalar('{} validation'.format(key),
-                              total_loss_dict[key].item(),
-                              iteration)
-            writer.add_scalar('{} validation vs samples'.format(key),
-                              total_loss_dict[key].item(),
-                              args.consumed_train_samples)
-            if args.log_validation_ppl_to_tensorboard:
-                writer.add_scalar('{} validation ppl'.format(key), ppl,
-                                  iteration)
-                writer.add_scalar('{} validation ppl vs samples'.format(key),
-                                  ppl, args.consumed_train_samples)
-            if wandb_writer and is_last_rank():
-                wandb_writer.log({
-                    '{} validation'.format(key): total_loss_dict[key].item()},
-                    iteration)
+    if args.multiple_valid_sets:
+        total_loss_dict=dict()
+        collected_non_loss_data=dict()
+        for name in data_iterator.keys():
+            total_loss_dict[name], collected_non_loss_data[name], timelimit = evaluate(
+                forward_step_func, data_iterator[name], model,
+                process_non_loss_data_func, config, verbose)
+        
+        string=''
+        for name in data_iterator.keys():
+            string += 'dataset ' + name + ' | '
+            string += 'validation loss at {} | '.format(prefix)
+            for key in total_loss_dict[name]:
+                string += '{} value: {:.6E} | '.format(key, total_loss_dict[name][key].item())
+                ppl = math.exp(min(20, total_loss_dict[name][key].item()))
+                string += '{} PPL: {:.6E} | '.format(key, ppl)
+                if writer and is_last_rank():
+                    writer.add_scalar(f'validation/{key}/{name}',
+                                    total_loss_dict[name][key].item(),
+                                    iteration)
+                    writer.add_scalar(f'validation vs samples/{key}/{name}',
+                                    total_loss_dict[name][key].item(),
+                                    args.consumed_train_samples)
+                    if args.log_validation_ppl_to_tensorboard:
+                        writer.add_scalar(f'validation ppl/{key}/{name} ', ppl,
+                                        iteration)
+                        writer.add_scalar(f'validation ppl vs samples/{key}/{name}',
+                                        ppl, args.consumed_train_samples)
+                    if wandb_writer and is_last_rank():
+                        wandb_writer.log({
+                        f'validation ppl/{key}/{name}': total_loss_dict[key].item()},
+                        iteration)
+
+            string+='\n'
+    else:
+        total_loss_dict, collected_non_loss_data, timelimit = evaluate(
+            forward_step_func, data_iterator, model,
+            process_non_loss_data_func, config, verbose)
+        # Timelimit hit during evaluation
+        if timelimit:
+            return
+        string = ' validation loss at {} | '.format(prefix)
+        for key in total_loss_dict:
+            string += '{} value: {:.6E} | '.format(key, total_loss_dict[key].item())
+            ppl = math.exp(min(20, total_loss_dict[key].item()))
+            string += '{} PPL: {:.6E} | '.format(key, ppl)
+            if writer:
+                writer.add_scalar('{} validation'.format(key),
+                                total_loss_dict[key].item(),
+                                iteration)
+                writer.add_scalar('{} validation vs samples'.format(key),
+                                total_loss_dict[key].item(),
+                                args.consumed_train_samples)
+                if args.log_validation_ppl_to_tensorboard:
+                    writer.add_scalar('{} validation ppl'.format(key), ppl,
+                                    iteration)
+                    writer.add_scalar('{} validation ppl vs samples'.format(key),
+                                    ppl, args.consumed_train_samples)
+                if wandb_writer and is_last_rank():
+                    wandb_writer.log({
+                        '{} validation'.format(key): total_loss_dict[key].item()},
+                        iteration)
 
     if process_non_loss_data_func is not None and writer and is_last_rank():
         process_non_loss_data_func(collected_non_loss_data, iteration, writer)
@@ -1430,12 +1465,23 @@ def build_train_valid_test_data_loaders(
         # Build dataloders.
         train_dataloader = build_pretraining_data_loader(
             train_ds, args.consumed_train_samples)
-        if args.skip_train:
-            valid_dataloader = build_pretraining_data_loader(valid_ds, 0)
+        
+        if args.multiple_valid_sets:
+            valid_dataloader=dict()
+            for key in valid_ds.keys():
+                valid_dataloader[key] = build_pretraining_data_loader(valid_ds[key], 0)
+            
+            test_dataloader=dict()
+            for key in test_ds.keys():
+                test_dataloader[key] = build_pretraining_data_loader(test_ds[key], 0)
+            
         else:
-            valid_dataloader = build_pretraining_data_loader(
-                valid_ds, args.consumed_valid_samples)
-        test_dataloader = build_pretraining_data_loader(test_ds, 0)
+            if args.skip_train:
+                valid_dataloader = build_pretraining_data_loader(valid_ds, 0)
+            else:
+                valid_dataloader = build_pretraining_data_loader(
+                    valid_ds, args.consumed_valid_samples)
+            test_dataloader = build_pretraining_data_loader(test_ds, 0)
 
         # Flags to know if we need to do training/validation/testing.
         do_train = train_dataloader is not None and args.train_iters > 0
@@ -1488,14 +1534,24 @@ def build_train_valid_test_data_iterators(
     else:
         train_data_iterator = None
 
-    if valid_dataloader is not None:
-        valid_data_iterator = _get_iterator(dl_type, valid_dataloader)
-    else:
-        valid_data_iterator = None
+    if args.multiple_valid_sets:
+        valid_data_iterator=dict()
+        for key in valid_dataloader.keys():
+            valid_data_iterator[key] = _get_iterator(dl_type, valid_dataloader[key])
 
-    if test_dataloader is not None:
-        test_data_iterator = _get_iterator(dl_type, test_dataloader)
+        test_data_iterator=dict()
+        for key in test_dataloader.keys():
+            test_data_iterator[key] = _get_iterator(dl_type, test_dataloader[key])
+
     else:
-        test_data_iterator = None
+        if valid_dataloader is not None:
+            valid_data_iterator = _get_iterator(dl_type, valid_dataloader)
+        else:
+            valid_data_iterator = None
+
+        if test_dataloader is not None:
+            test_data_iterator = _get_iterator(dl_type, test_dataloader)
+        else:
+            test_data_iterator = None
 
     return train_data_iterator, valid_data_iterator, test_data_iterator
