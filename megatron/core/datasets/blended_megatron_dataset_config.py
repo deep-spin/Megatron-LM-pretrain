@@ -34,6 +34,12 @@ class BlendedMegatronDatasetConfig:
        'blend'. Defauls to None.
     """
 
+    renormalize_blend_weights: bool = False
+    """Renormalize the blend weights to account for mid-level dataset oversampling done to ensure 
+       fulfillmenet of the of the requested number of samples. Defaults to False for backward
+       comparability in the data sample order.
+    """
+
     split: Optional[str] = None
     """The split string, a comma separated weighting for the dataset splits when drawing samples
        from a single distribution. Not to be used with 'blend_per_split'.  Defaults to None.
@@ -66,8 +72,7 @@ class BlendedMegatronDatasetConfig:
     multiple_valid_sets: bool = False
 
     def __post_init__(self) -> None:
-        """Do asserts and set fields post init
-        """
+        """Do asserts and set fields post init"""
         if self.blend_per_split is not None and any(self.blend_per_split):
             assert self.blend is None, "blend and blend_per_split are incompatible"
             assert self.split is None, "split and blend_per_split are incompatible"
