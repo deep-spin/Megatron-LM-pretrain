@@ -36,7 +36,10 @@ export CUDA_HOME=${CONDA_HOME}/envs/${ENV_NAME}
 
 # install tourch th
 pip install torch torchvision torchaudio
-pip install "transformer_engine[pytorch]<1.11"
+# pip install "transformer_engine[pytorch]<1.11"
+# it seems that 1.12 straight up doesn't work, but 1.11 has a problem with checkpointing
+# so we install after that commit 
+pip install git+https://github.com/NVIDIA/TransformerEngine.git@2215fa5c7557b66034068816020f9f611019e457
 
 rm -rf .apex && git clone https://github.com/NVIDIA/apex .apex && 
 cd .apex
