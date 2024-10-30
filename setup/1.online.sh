@@ -35,7 +35,7 @@ export LD_LIBRARY_PATH=${CONDA_HOME}/envs/${ENV_NAME}/lib:$LD_LIBRARY_PATH
 export CUDA_HOME=${CONDA_HOME}/envs/${ENV_NAME}
 
 # install tourch th
-pip install torch torchvision torchaudio
+pip install torch torchvision torchaudio transformers accelerate six
 
 rm -rf .flash-attn && git clone --branch v2.5.8 --recursive https://github.com/Dao-AILab/flash-attention .flash-attn
 

@@ -87,6 +87,12 @@ def set_attn_state(args, layer, hf_layer):
     dim = args.kv_channels
     assert num_heads % num_querys_per_group == 0
 
+    # Assert no bias.
+    assert hf_attn.q_proj.bias is None
+    assert hf_attn.k_proj.bias is None
+    assert hf_attn.v_proj.bias is None
+    assert hf_attn.o_proj.bias is None
+
     # Copy weights (re-order dimensions for Megatron).
     attn.linear_qkv.weight.data.copy_(torch.cat([
         hf_attn.q_proj.weight.reshape((num_query_groups, num_querys_per_group*dim, -1)),
@@ -97,6 +103,13 @@ def set_attn_state(args, layer, hf_layer):
 
 def set_mlp_state(args, layer, hf_layer):
     '''Set MLP params.'''
+
+    # Assert no bias.
+    assert hf_layer.block_sparse_moe.gate.bias is None
+    for expert in hf_layer.block_sparse_moe.experts:
+        assert expert.w1.bias is None
+        assert expert.w2.bias is None
+        assert expert.w3.bias is None
 
     layer.mlp.router.weight.data.copy_(hf_layer.block_sparse_moe.gate.weight)
 
@@ -253,6 +266,7 @@ def _load_checkpoint(queue, args):
     md.bert_binary_head = margs.bert_binary_head
     md.output_layer = margs.untie_embeddings_and_output_weights
     md.position_embedding_type = margs.position_embedding_type
+    md.qkv_bias = margs.add_qkv_bias
     md.linear_bias = margs.add_bias_linear
     md.norm_has_bias = False
     md.swiglu = margs.swiglu

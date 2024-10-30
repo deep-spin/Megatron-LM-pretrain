@@ -223,6 +223,8 @@ class MCoreMoETESetter(MCoreSetter):
         mlp_fc2_weight=None,
         mlp_fc2_bias=None,
     ):
+        assert mlp_fc1_bias is None, "MoE conversion does not support bias in fc1 layer."
+        assert mlp_fc2_bias is None, "MoE conversion does not support bias in fc2 layer."
 
         block = cls.get_transformer_block(model)
         l = block.layers[layer_idx]
@@ -245,10 +247,19 @@ class MCoreMoETESetter(MCoreSetter):
 
         cls.set_tensor(l.mlp.router.weight, router_weight)
 
-        num_local_experts = mlp_fc1_weight.shape[0]
-        for expert_idx in range(num_local_experts):
-            cls.set_tensor(l.mlp.experts.local_experts[expert_idx].linear_fc1.weight, mlp_fc1_weight[expert_idx])
-            cls.set_tensor(l.mlp.experts.local_experts[expert_idx].linear_fc2.weight, mlp_fc2_weight[expert_idx])
+        assert model.config.moe_grouped_gemm
+        if model.config.moe_grouped_gemm:
+            num_local_experts = mlp_fc1_weight.shape[0]
+            for expert_idx in range(num_local_experts):
+                weight_name = f"weight{expert_idx}"
+                cls.set_tensor(getattr(l.mlp.experts.linear_fc1, weight_name), mlp_fc1_weight[expert_idx])
+                cls.set_tensor(getattr(l.mlp.experts.linear_fc2, weight_name), mlp_fc2_weight[expert_idx])
+
+        else:    
+            num_local_experts = mlp_fc1_weight.shape[0]
+            for expert_idx in range(num_local_experts):
+                cls.set_tensor(l.mlp.experts.local_experts[expert_idx].linear_fc1.weight, mlp_fc1_weight[expert_idx])
+                cls.set_tensor(l.mlp.experts.local_experts[expert_idx].linear_fc2.weight, mlp_fc2_weight[expert_idx])
 
 
 def get_model_setter(model_type, transformer_impl, num_experts=0):
@@ -389,6 +400,9 @@ def save_checkpoint(queue, args):
                 '--save-interval', '1',
                 '--save', args.save_dir,
                 '--ckpt-format', 'torch', # only 'torch' supported for conversion
+                '--use-mcore-models',
+                '--moe-grouped-gemm',
+                '--expert-model-parallel-size', str(args.target_expert_parallel_size),
                 ]
 
     if md.make_vocab_size_divisible_by is not None:
@@ -457,6 +471,7 @@ def save_checkpoint(queue, args):
     margs.tensorboard_dir = None
     margs.tokenizer_model = None
     margs.transformer_impl = args.saver_transformer_impl
+    margs.moe_grouped_gemm = True
 
     set_global_variables(margs, build_tokenizer=False)
 
@@ -560,6 +575,7 @@ def save_checkpoint(queue, args):
                 word=out_word_embed[tp_rank],
                 pos=pos_embed,
             )
+    print(models[0][0][0])
 
     def chunk_weight(weight, parallel_mode, tp_size=1, ep_size=1):
         assert parallel_mode in ["row", "column"]
