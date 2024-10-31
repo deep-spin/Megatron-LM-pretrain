@@ -35,7 +35,7 @@ export LD_LIBRARY_PATH=${CONDA_HOME}/envs/${ENV_NAME}/lib:$LD_LIBRARY_PATH
 export CUDA_HOME=${CONDA_HOME}/envs/${ENV_NAME}
 
 # install tourch th
-pip install torch torchvision torchaudio
+pip install torch torchvision torchaudio six pybind11 psutil
 # pip install "transformer_engine[pytorch]<1.11"
 # it seems that 1.11 straight up doesn't work, but 1.10 has a problem with checkpointing
 # so we install after that commit 

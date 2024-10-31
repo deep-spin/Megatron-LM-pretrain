@@ -26,8 +26,6 @@ try:
 except ImportError:
     HAVE_FUSED_LAYER_NORM = False
 
-from apex.normalization.fused_layer_norm import FusedRMSNormAffineFunction, FusedRMSNormFunction
-
 
 class FusedLayerNorm(torch.nn.Module):
     """Layer Norm, fused into a single CUDA kernel.
@@ -110,23 +108,62 @@ class FusedLayerNorm(torch.nn.Module):
             hidden_size = (hidden_size,)
         self.hidden_size = torch.Size(hidden_size)
         self.eps = eps
-        self.elementwise_affine = elementwise_affine
-        if self.elementwise_affine:
-            self.weight = Parameter(torch.Tensor(*hidden_size))
-        else:
-            self.register_parameter("weight", None)
+        # Parameters need to be initialized with torch.empty rather than torch.Tensor for correct device placement with nemo2.
+        self.weight = Parameter(torch.empty(*hidden_size))
+        self.bias = Parameter(torch.empty(*hidden_size))
         self.reset_parameters()
-        self.sequence_parallel = sequence_parallel
+        self.persist_layer_norm = persist_layer_norm
+        self.sequence_parallel = self.config.sequence_parallel
 
-        # set sequence parallelism flag on weight parameters
-        setattr(self.weight, "sequence_parallel", self.sequence_parallel)
+        # set sequence parallelism flag on weight and bias parameters
+        setattr(self.weight, 'sequence_parallel', self.sequence_parallel)
+        setattr(self.bias, 'sequence_parallel', self.sequence_parallel)
 
     def reset_parameters(self):
-        if self.elementwise_affine:
-            init.ones_(self.weight)
 
-    def forward(self, input):
-        if self.elementwise_affine:
-            return FusedRMSNormAffineFunction.apply(input, self.weight, self.hidden_size, self.eps)
+        if self.zero_centered_gamma:
+            init.zeros_(self.weight)
+            init.zeros_(self.bias)
         else:
-            return FusedRMSNormFunction.apply(input, self.hidden_size, self.eps)
+            init.ones_(self.weight)
+            init.zeros_(self.bias)
+
+    def forward(self, input: Tensor) -> Tensor:
+
+        weight = self.weight + 1 if self.zero_centered_gamma else self.weight
+
+        if self.persist_layer_norm:
+            if 'memory_efficient' in inspect.getfullargspec(FastLayerNormFN.forward).args:
+                output = FastLayerNormFN.apply(
+                    input, weight, self.bias, self.eps, self.config.memory_efficient_layer_norm
+                )
+            else:
+                output = FastLayerNormFN.apply(input, weight, self.bias, self.eps)
+
+            # Apex's fast layer norm function outputs a 'view' tensor (i.e., has
+            # a populated '_base' field). This will result in schedule.py's
+            # deallocate_output_tensor() throwing an error, so a viewless tensor is
+            # created to prevent this.
+            output = make_viewless_tensor(
+                inp=output, requires_grad=input.requires_grad, keep_graph=True
+            )
+
+        else:
+            if (
+                'memory_efficient'
+                in inspect.getfullargspec(FusedLayerNormAffineFunction.forward).args
+            ):
+                return FusedLayerNormAffineFunction.apply(
+                    input,
+                    weight,
+                    self.bias,
+                    self.hidden_size,
+                    self.eps,
+                    self.config.memory_efficient_layer_norm,
+                )
+            else:
+                return FusedLayerNormAffineFunction.apply(
+                    input, weight, self.bias, self.hidden_size, self.eps
+                )
+
+        return output
