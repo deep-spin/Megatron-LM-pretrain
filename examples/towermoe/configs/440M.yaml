@@ -1,9 +1,6 @@
 launch:
-    job_name: "train-towermoe-440M"
-    run_dir: "local/towermoe-440M"
     num_nodes: 1
-    gpus_per_node: 2
-    activate_env_cmd: source /opt/spack-software/installs/gcc-11.4.0/miniforge3-24.3.0-0-uwrynnz35yupbw66man77kk3sc2qr7zy/etc/profile.d/conda.sh && conda activate megatron-lm
+    gpus_per_node: 4
 network_size:
     num_layers: 16
     hidden_size: 960
@@ -17,28 +14,23 @@ logging:
     log_progress: True
 training:
     micro_batch_size: 2
-    global_batch_size: 32
+    global_batch_size: 64
 learning_rate:
     lr: 1e-4
-    lr_warmup_iters: 1000
+    lr_warmup_iters: 100
 checkpointing:
-    save: /mnt/scratch-artemis/duarte/megatron-test
     save_interval: 500
-    load: /mnt/scratch-artemis/duarte/megatron-test
 validation:
-    eval_interval: 100
+    eval_interval: 500
     eval_iters: 10
 distributed:
     tensor_model_parallel_size: 1
     pipeline_model_parallel_size: 1
     distributed_optimizer: false
 data:
-    data_path:
-        - /mnt/scratch-artemis/duarte/megatron-test/Dataset.en_wiki/data_bin/data_text_document
     seq_length: ${network_size.max_position_embeddings}
     tokenizer_type: PretrainedFromHF
-    tokenizer_model: /mnt/scratch-artemis/duarte/eurollm-tokenizer
-    train_iters: 2000
+    train_iters: 1000
 moe:
     num_experts: 64
     expert_model_parallel_size: ${launch.gpus_per_node}
