@@ -13,7 +13,7 @@ logging:
     log_throughput: True
     log_progress: True
 training:
-    micro_batch_size: 2
+    micro_batch_size: 4
     global_batch_size: 64
 learning_rate:
     lr: 1e-4
