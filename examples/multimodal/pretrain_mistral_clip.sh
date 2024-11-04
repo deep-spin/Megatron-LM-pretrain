@@ -29,7 +29,7 @@ if [[ -z $TOKENIZER_MODEL ]]; then
     exit 1
 fi
 
-CHECKPOINT_DIR="${WORKSPACE}/${LOAD_NAME}/checkpoints"
+CHECKPOINT_DIR="$LOAD_NAME"
 
 DATA_TRAIN="${SOURCE}/examples/multimodal/pretrain_dataset.yaml"
 
@@ -62,7 +62,6 @@ OPTIONS=" \
     --num-query-groups 8 \
     --no-masked-softmax-fusion \
     --num-workers ${NW} \
-    --exit-duration-in-mins 230 \
     --use-flash-attn \
     --untie-embeddings-and-output-weights \
     --disable-bias-linear \
@@ -82,7 +81,7 @@ OPTIONS=" \
     --max-position-embeddings 4096 \
     --ffn-hidden-size 14336 \
     --train-iters 20000 \
-    --micro-batch-size 1 \
+    --micro-batch-size 16 \
     --global-batch-size ${BZ} \
     --lr-decay-iters 20000 \
     --lr-warmup-fraction .01 \
@@ -93,10 +92,10 @@ OPTIONS=" \
     --eval-iters 10 \
     --eval-interval 1000 \
     --tokenizer-type HuggingFaceTokenizer \
-    --tokenizer-model ${WORKSPACE}/${TOKENIZER_MODEL} \
+    --tokenizer-model ${TOKENIZER_MODEL} \
     --data-path ${DATA_TRAIN} \
     --prompt-path ${SOURCE}/examples/multimodal/manual_prompts.json \
-    --save-interval 1000 \
+    --save-interval 2000 \
     --save ${FINETUNE_DIR} \
     --load ${FINETUNE_DIR} \
     --dataloader-save ${FINETUNE_DIR}/dataloader \
@@ -128,4 +127,4 @@ OPTIONS=" \
 export NVTE_APPLY_QK_LAYER_SCALING=0
 export NVTE_ALLOW_NONDETERMINISTIC_ALGO=${NONDETERMINISTIC_ATTN}
 
-torchrun --nproc_per_node 8 examples/multimodal/train.py ${OPTIONS}
+torchrun --nproc_per_node 4 examples/multimodal/train.py ${OPTIONS}

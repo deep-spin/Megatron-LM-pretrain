@@ -6,6 +6,7 @@ export NVTE_APPLY_QK_LAYER_SCALING=0
 
 GROUNDTRUTH_PATH="placeholder"
 NUM_FRAMES=1
+NUM_GPUS=4
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -49,6 +50,11 @@ while [[ $# -gt 0 ]]; do
             shift
             shift
             ;;
+        --num-gpus)
+            NUM_GPUS="$2"
+            shift
+            shift
+            ;;
         -*|--*)
             echo "Invalid option $1"
             exit 1
@@ -63,7 +69,7 @@ END=0
 
 for PARTITION_ID in $( eval echo {$START..$END} )
 do
-    torchrun --nproc_per_node 8 examples/multimodal/run_text_generation.py \
+    torchrun --nproc_per_node ${NUM_GPUS} examples/multimodal/run_text_generation.py \
         --apply-layernorm-1p \
         --attention-softmax-in-fp32 \
         --use-flash-attn \
@@ -94,8 +100,9 @@ do
         --tokenizer-type HuggingFaceTokenizer \
         --tokenizer-model ${TOKENIZER_PATH} \
         --bf16 \
-        --micro-batch-size 1 \
-        --seq-length 2048 \
+        --micro-batch-size 32 \
+        --seq-length 576 \
+        --decoder-seq-length 2048 \
         --out-seq-length 12 \
         --temperature 1.0 \
         --img-h 336 \
