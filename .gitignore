@@ -10,3 +10,4 @@ logs
 local/
 .gitmodules
 .apex
+*.local.yaml

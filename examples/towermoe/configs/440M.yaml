@@ -1,0 +1,37 @@
+launch:
+    num_nodes: 1
+    gpus_per_node: 4
+network_size:
+    num_layers: 16
+    hidden_size: 960
+    ffn_hidden_size: 330
+    num_attention_heads: 12
+    num_query_groups: 4
+    max_position_embeddings: 4096
+logging:
+    log_params_norm: True
+    log_throughput: True
+    log_progress: True
+training:
+    micro_batch_size: 4
+    global_batch_size: 64
+learning_rate:
+    lr: 1e-4
+    lr_warmup_iters: 100
+checkpointing:
+    save_interval: 500
+validation:
+    eval_interval: 500
+    eval_iters: 10
+distributed:
+    tensor_model_parallel_size: 1
+    pipeline_model_parallel_size: 1
+    distributed_optimizer: false
+data:
+    seq_length: ${network_size.max_position_embeddings}
+    tokenizer_type: PretrainedFromHF
+    train_iters: 1000
+moe:
+    num_experts: 64
+    expert_model_parallel_size: ${launch.gpus_per_node}
+    moe_router_topk: 8

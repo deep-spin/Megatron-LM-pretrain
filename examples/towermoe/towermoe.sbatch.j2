@@ -1,0 +1,194 @@
+#!/bin/bash
+#SBATCH --job-name={{ launch.job_name }}
+#SBATCH --output={{ launch.output }}
+#SBATCH --error={{ launch.error }}
+#SBATCH --nodes={{ launch.num_nodes }}
+#SBATCH --ntasks-per-node=1
+#SBATCH --gpus-per-node={{ launch.gpus_per_node }}
+{%- if 'time' in launch and launch.time %}
+#SBATCH --time={{ launch.time }}
+{%- endif -%}
+{%- if 'account' in launch and launch.account %}
+#SBATCH --account={{ launch.account }}
+{%- endif -%}
+{%- if 'partition' in launch and launch.partition %}
+#SBATCH --partition={{ launch.partition }}
+{%- endif -%}
+{%- if 'qos' in launch and launch.qos %}
+#SBATCH --qos={{ launch.qos }}
+{%- endif %}
+
+set -euo pipefail
+
+{{ launch.activate_env_cmd }}
+
+NETWORK_SIZE_ARGS="\
+    --num-layers {{ network_size.num_layers }} \
+    --hidden-size {{ network_size.hidden_size }} \
+    --ffn-hidden-size {{ network_size.ffn_hidden_size }} \
+    --max-position-embeddings {{ network_size.max_position_embeddings }} \
+    --num-attention-heads {{ network_size.num_attention_heads }} \
+    {%- if network_size.num_query_groups != network_size.num_attention_heads %}
+    --group-query-attention \
+    --num-query-groups {{ network_size.num_query_groups }} \
+    {%- endif %}
+    --swiglu \
+    --normalization RMSNorm \
+    --position-embedding-type rope \
+    --untie-embeddings-and-output-weights \
+    --no-masked-softmax-fusion \
+    --no-position-embedding \
+    --rotary-base 10000 \
+    --disable-bias-linear"
+
+LOGGING_ARGS="\
+    {%- if logging.log_params_norm %}
+    --log-params-norm \
+    {%- endif %}
+    {%- if logging.log_throughput %}
+    --log-throughput \
+    {%- endif %}
+    {%- if logging.log_progress %}
+    --log-progress \
+    {%- endif %}
+    --log-interval 1
+    "
+
+REGULARIZATION_ARGS="\
+    --attention-dropout {{ regularization.attention_dropout }} \
+    --hidden-dropout {{ regularization.hidden_dropout }} \
+    --weight-decay {{ regularization.weight_decay }} \
+    --clip-grad {{ regularization.clip_grad }} \
+    --adam-beta1 {{ regularization.adam_beta1 }} \
+    --adam-beta2 {{ regularization.adam_beta2 }} \
+    --adam-eps {{ regularization.adam_eps }}"
+
+TRAINING_ARGS="\
+    --micro-batch-size {{ training.micro_batch_size }} \
+    --global-batch-size {{ training.global_batch_size }} \
+    "
+
+LEARNING_RATE_ARGS="\
+    --lr {{ learning_rate.lr }} \
+    --lr-warmup-iters {{ learning_rate.lr_warmup_iters }} \
+    "
+
+CHECKPOINTING_ARGS="\
+    {%- if checkpointing.save %}
+    --save {{ checkpointing.save }} \
+    {%- endif %}
+    {%- if checkpointing.save_interval %}
+    --save-interval {{ checkpointing.save_interval }} \
+    {%- endif %}
+    {%- if checkpointing.no_save_optim %}
+    --no-save-optim \
+    {%- endif %}
+    {%- if checkpointing.no_save_rng %}
+    --no-save-rng \
+    {%- endif %}
+    {%- if checkpointing.load %}
+    --load {{ checkpointing.load }} \
+    {%- endif %}
+    {%- if checkpointing.no_load_optim %}
+    --no-load-optim \
+    {%- endif %}
+    {%- if checkpointing.no_load_rng %}
+    --no-load-rng \
+    {%- endif %}
+    {%- if checkpointing.pretrained_checkpoint %}
+    --pretrained-checkpoint {{ checkpointing.pretrained_checkpoint }} \
+    {%- endif %}
+    {%- if checkpointing.no_initialization %}
+    --no-initialization \
+    {%- endif %}
+    "
+
+MIXED_PRECISION_ARGS="\
+    --bf16 \
+    --attention-softmax-in-fp32"
+
+DISTRUBUTED_ARGS="\
+    {%- if distributed.tensor_model_parallel_size > 1 %}
+    --tensor-model-parallel-size {{ distributed.tensor_model_parallel_size }} \
+    {%- endif %}
+    {%- if distributed.pipeline_model_parallel_size > 1 %}
+    --pipeline-model-parallel-size {{ distributed.pipeline_model_parallel_size }} \
+    {%- endif %}
+    {%- if distributed.distributed_optimizer %}
+    --use-distributed-optimizer \
+    --overlap-param-gather \
+    {%- endif %}
+    --overlap-grad-reduce \
+    "
+
+VALIDATION_ARGS="\
+    --eval-iters {{ validation.eval_iters }} \
+    --eval-interval {{ validation.eval_interval }}"
+
+DATA_ARGS="\
+    --seq-length {{ data.seq_length }} \
+    --tokenizer-type {{ data.tokenizer_type }} \
+    {%- if data.tokenizer_model %}
+    --tokenizer-model {{ data.tokenizer_model }} \
+    {%- endif %}
+    {%- if data.data_path | length > 0 %}
+    --data-path {{ data.data_path | join(" ") }} \
+    {%- endif %}
+    {%- if data.split %}
+    --split {{ data.split }} \
+    {%- endif %}
+    --train-iters {{ data.train_iters }} \
+    "
+
+MOE_ARGS="\
+    --num-experts {{ moe.num_experts }} \
+    --moe-router-topk {{ moe.moe_router_topk }} \
+    --moe-router-load-balancing-type aux_loss \
+    {%- if moe.expert_model_parallel_size > 1 %}
+    --expert-model-parallel-size {{ moe.expert_model_parallel_size }} \
+    {%- endif %}
+    {%- if moe.moe_aux_loss_coeff %}
+    --moe-aux-loss-coeff {{ moe.moe_aux_loss_coeff }} \
+    {%- endif %}
+    {%- if moe.moe_z_loss_coeff %}
+    --moe-z-loss-coeff {{ moe.moe_z_loss_coeff }} \
+    {%- endif %}
+    --moe-grouped-gemm \
+    --moe-token-dispatcher-type alltoall"
+
+SRUN_ARGS="\
+    --nodes={{ launch.num_nodes }} \
+    --ntasks-per-node=1 \
+    --cpus-per-task=${SLURM_CPUS_ON_NODE} \
+    --gpus-per-node={{ launch.gpus_per_node }} \
+    --cpu-bind=none \
+    --mem-bind=none \
+    --label"
+
+RDZV_HOST=$(scontrol show hostname ${SLURM_NODELIST} | head -n 1)
+
+TORCHRUN_ARGS="\
+    --nnodes={{ launch.num_nodes }} \
+    --nproc_per_node={{ launch.gpus_per_node }} \
+    --rdzv-id=${SLURM_JOBID} \
+    --rdzv-backend=c10d \
+    --rdzv-endpoint=${RDZV_HOST}:{{ launch.port }}"
+
+cd {{ megatron_dir }}
+
+export CUDA_DEVICE_MAX_CONNECTIONS=1
+export OMP_NUM_THREADS=${SLURM_CPUS_ON_NODE}
+srun ${SRUN_ARGS} -- \
+    torchrun ${TORCHRUN_ARGS} \
+    pretrain_gpt.py \
+    ${NETWORK_SIZE_ARGS} \
+    ${LOGGING_ARGS} \
+    ${REGULARIZATION_ARGS} \
+    ${TRAINING_ARGS} \
+    ${LEARNING_RATE_ARGS} \
+    ${CHECKPOINTING_ARGS} \
+    ${MIXED_PRECISION_ARGS} \
+    ${DISTRUBUTED_ARGS} \
+    ${VALIDATION_ARGS} \
+    ${DATA_ARGS} \
+    ${MOE_ARGS}
