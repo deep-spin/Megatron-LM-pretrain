@@ -3,7 +3,6 @@ import json
 import jsonargparse
 import jinja2
 import os
-import shutil
 
 from typing import Any, Optional
 
@@ -125,7 +124,6 @@ def main(
 
     cfg = {
         "launch": _build_launch_cfg(launch),
-        #"conda": _resolve_conda_env(),
         "network_size": dataclasses.asdict(network_size),
         "logging": dataclasses.asdict(logging),
         "regularization": dataclasses.asdict(regularization),
@@ -165,25 +163,6 @@ def _build_launch_cfg(launch_args: LaunchArgs) -> dict[str, Any]:
     cfg["output"] = f"{run_dir}/{launch_args.job_name}-%j.out"
     cfg["error"] = f"{run_dir}/{launch_args.job_name}-%j.err"
     return cfg
-
-def _resolve_conda_env():
-    conda_exe = shutil.which("conda")
-    if not conda_exe:
-        raise RuntimeError("conda not found in PATH")
-    # conda strcture is <conda home>/condabin/conda
-    conda_home = os.path.dirname(os.path.dirname(conda_exe))
-
-
-    conda_prefix = os.getenv("CONDA_PREFIX")
-    if not conda_prefix:
-        raise RuntimeError("CONDA_PREFIX not set")
-
-    conda_env_name = os.path.basename(conda_prefix)
-
-    return {
-        "home": conda_home,
-        "env_name": conda_env_name,
-    }
 
 
 if __name__ == "__main__":
