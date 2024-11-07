@@ -103,6 +103,8 @@ class LaunchArgs:
     account: Optional[str] = None
     partition: Optional[str] = None
     qos: Optional[str] = None
+    time: Optional[str] = None
+    exclusive: bool = False
     port: int = 29400
     activate_env_cmd: str = ""
 
@@ -154,6 +156,10 @@ def main(
 
     with open(f"{run_dir}/slurm.sbatch", "w") as f:
         f.write(template.render(cfg))
+
+    if checkpointing.save is not None:
+        print(f"Saving checkpoints to {checkpointing.save}")
+        os.makedirs(checkpointing.save, exist_ok=True)
 
     os.system(f"sbatch {run_dir}/slurm.sbatch")
 

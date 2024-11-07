@@ -1,0 +1,45 @@
+launch:
+    job_name: "towermoe-333M-664M"
+    run_dir: ./local/runs/${launch.job_name}/
+    num_nodes: 8
+    gpus_per_node: 4
+    exclusive: True
+network_size:
+    num_layers: 12
+    hidden_size: 768
+    ffn_hidden_size: 264
+    num_attention_heads: 12
+    num_query_groups: 4
+    max_position_embeddings: 4096
+moe:
+    num_experts: 64
+    expert_model_parallel_size: 1
+    moe_router_topk: 16
+logging:
+    log_params_norm: True
+    log_throughput: True
+    log_progress: True
+training:
+    micro_batch_size: 4
+    global_batch_size: 1024
+learning_rate:
+    lr: 1e-4
+    lr_warmup_iters: 100
+checkpointing:
+    save: ./${launch.run_dir}/checkpoints/
+    save_interval: 500
+    load: ${checkpointing.save}
+validation:
+    eval_interval: 500
+    eval_iters: 10
+distributed:
+    tensor_model_parallel_size: 1
+    pipeline_model_parallel_size: 1
+    distributed_optimizer: false
+data:
+    seq_length: ${network_size.max_position_embeddings}
+    data_path:
+        - ./local/data/Dataset.en_wiki/data_bin/data_text_document
+    tokenizer_type: PretrainedFromHF
+    tokenizer_model: ./local/tokenizers/eurollm-tokenizer
+    train_iters: 1000

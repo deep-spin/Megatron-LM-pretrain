@@ -17,6 +17,9 @@
 {%- if 'qos' in launch and launch.qos %}
 #SBATCH --qos={{ launch.qos }}
 {%- endif %}
+{%- if launch.exclusive %}
+#SBATCH --exclusive
+{%- endif %}
 
 set -euo pipefail
 

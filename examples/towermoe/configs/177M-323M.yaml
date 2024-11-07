@@ -1,25 +1,34 @@
 launch:
-    num_nodes: 1
+    job_name: "towermoe-177M-323M"
+    run_dir: ./local/runs/${launch.job_name}/
+    num_nodes: 8
     gpus_per_node: 4
+    exclusive: True
 network_size:
-    num_layers: 16
-    hidden_size: 960
-    ffn_hidden_size: 330
-    num_attention_heads: 12
-    num_query_groups: 4
+    num_layers: 8
+    hidden_size: 576
+    ffn_hidden_size: 198
+    num_attention_heads: 9
+    num_query_groups: 3
     max_position_embeddings: 4096
+moe:
+    num_experts: 64
+    expert_model_parallel_size: 1
+    moe_router_topk: 8
 logging:
     log_params_norm: True
     log_throughput: True
     log_progress: True
 training:
     micro_batch_size: 4
-    global_batch_size: 64
+    global_batch_size: 1024
 learning_rate:
     lr: 1e-4
     lr_warmup_iters: 100
 checkpointing:
+    save: ./${launch.run_dir}/checkpoints/
     save_interval: 500
+    load: ${checkpointing.save}
 validation:
     eval_interval: 500
     eval_iters: 10
@@ -29,9 +38,8 @@ distributed:
     distributed_optimizer: false
 data:
     seq_length: ${network_size.max_position_embeddings}
+    data_path:
+        - ./local/data/Dataset.en_wiki/data_bin/data_text_document
     tokenizer_type: PretrainedFromHF
+    tokenizer_model: ./local/tokenizers/eurollm-tokenizer
     train_iters: 1000
-moe:
-    num_experts: 64
-    expert_model_parallel_size: ${launch.gpus_per_node}
-    moe_router_topk: 8
