@@ -180,7 +180,7 @@ TORCHRUN_ARGS="\
 cd {{ megatron_dir }}
 
 export CUDA_DEVICE_MAX_CONNECTIONS=1
-export OMP_NUM_THREADS=${SLURM_CPUS_ON_NODE}
+export OMP_NUM_THREADS=$((SLURM_CPUS_ON_NODE / {{ launch.gpus_per_node }}))
 srun ${SRUN_ARGS} -- \
     torchrun ${TORCHRUN_ARGS} \
     pretrain_gpt.py \
