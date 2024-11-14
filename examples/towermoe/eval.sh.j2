@@ -1,0 +1,63 @@
+#!/bin/bash
+
+set -euo pipefail
+
+{{ launch.activate_env_cmd }}
+
+CKPTS_DIR={{ eval.hf_ckpts_dir }}
+OUTPUTS_DIR={{ eval.outputs_dir }}
+
+# Ensure the outputs directory is created
+mkdir -p "$OUTPUTS_DIR"
+
+# Loop through all directories in the checkpoints base directory
+for CKPT_SUBDIR in "$CKPTS_DIR"/*; do
+    if [ -d "$CKPT_SUBDIR" ]; then
+        CKPT_NAME=$(basename "$CKPT_SUBDIR")
+
+        OUTPUT_DIR="$OUTPUTS_DIR/$CKPT_NAME"
+
+        if [ -d "$OUTPUT_DIR" ]; then
+            echo "Output directory $OUTPUT_DIR already exists, skipping evaluation for $CKPT_NAME"
+            continue
+        fi
+
+        mkdir -p "$OUTPUT_DIR"
+
+        SRUN_ARGS=" \
+            --nodes=1 \
+            --tasks-per-node=1 \
+            --cpus-per-task={{ launch.cpus_per_task }} \
+            --gpus-per-task={{ launch.gpus_per_task }} \
+            --output=$OUTPUT_DIR/slurm-%j.out \
+            --error=$OUTPUT_DIR/slurm-%j.err \
+            {%- if 'time' in launch and launch.time %}
+            --time={{ launch.time }} \
+            {%- endif %}
+            {%- if 'account' in launch and launch.account %}
+            --account={{ launch.account }} \
+            {%- endif %}
+            {%- if 'partition' in launch and launch.partition %}
+            --partition={{ launch.partition }} \
+            {%- endif %}
+            {%- if 'qos' in launch and launch.qos %}
+            --qos={{ launch.qos }} \
+            {%- endif %}
+            "
+
+        EVAL_ARGS="\
+            --model hf \
+            --model_args pretrained=$CKPT_SUBDIR \
+            --tasks {{ eval.tasks }} \
+            --num_fewshot {{ eval.num_fewshot }} \
+            --output_path $OUTPUT_DIR \
+            --log_samples \
+            --batch_size auto"
+
+        # Submit the evaluation job with Slurm
+        srun $SRUN_ARGS -- lm_eval $EVAL_ARGS &
+    fi
+done
+
+# Wait for all jobs to finish
+wait

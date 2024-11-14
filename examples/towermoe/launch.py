@@ -59,12 +59,14 @@ class CheckpointingArgs:
     no_load_rng: bool = False
     pretrained_checkpoint: Optional[str] = None
     no_initialization: bool = False
+    ckpt_format: str = "torch_dist"
 
 
 @dataclasses.dataclass(frozen=True)
 class DistributedArgs:
     tensor_model_parallel_size: int = 1
     pipeline_model_parallel_size: int = 1
+    num_layers_per_virtual_pipeline_stage: Optional[int] = None
     distributed_optimizer: bool = False
 
 
@@ -98,6 +100,9 @@ class MoEArgs:
 class LaunchArgs:
     job_name: str
     run_dir: str
+    # Contrary to slurm, we define cpus per node and not cpus per task as we
+    # only launch one torchrun task per node which shares all cpus in the node.
+    cpus_per_node: int
     gpus_per_node: int
     num_nodes: int = 1
     account: Optional[str] = None
@@ -161,7 +166,7 @@ def main(
         print(f"Saving checkpoints to {checkpointing.save}")
         os.makedirs(checkpointing.save, exist_ok=True)
 
-    os.system(f"sbatch {run_dir}/slurm.sbatch")
+    os.system(f"sbatch -v {run_dir}/slurm.sbatch")
 
 def _build_launch_cfg(launch_args: LaunchArgs) -> dict[str, Any]:
     run_dir = os.path.abspath(launch_args.run_dir)

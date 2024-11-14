@@ -1,0 +1,8 @@
+launch:
+    job_name: "towermoe-440M-1.2B"
+    run_dir: ./local/runs/${launch.job_name}/
+    gpus_per_task: 1
+eval:
+    hf_ckpts_dir: ./${launch.run_dir}/hf-checkpoints/
+    outputs_dir: ./${launch.run_dir}/outputs/
+    tasks: hellaswag

@@ -22,6 +22,7 @@
 {%- endif %}
 
 set -euo pipefail
+set -x
 
 {{ launch.activate_env_cmd }}
 
@@ -104,6 +105,7 @@ CHECKPOINTING_ARGS="\
     {%- if checkpointing.no_initialization %}
     --no-initialization \
     {%- endif %}
+    --ckpt-format {{ checkpointing.ckpt_format }} \
     "
 
 MIXED_PRECISION_ARGS="\
@@ -116,6 +118,9 @@ DISTRUBUTED_ARGS="\
     {%- endif %}
     {%- if distributed.pipeline_model_parallel_size > 1 %}
     --pipeline-model-parallel-size {{ distributed.pipeline_model_parallel_size }} \
+    {%- endif %}
+    {%- if distributed.num_layers_per_virtual_pipeline_stage %}
+    --num-layers-per-virtual-pipeline-stage {{ distributed.num_layers_per_virtual_pipeline_stage }} \
     {%- endif %}
     {%- if distributed.distributed_optimizer %}
     --use-distributed-optimizer \
@@ -180,7 +185,19 @@ TORCHRUN_ARGS="\
 cd {{ megatron_dir }}
 
 export CUDA_DEVICE_MAX_CONNECTIONS=1
-export OMP_NUM_THREADS=$((SLURM_CPUS_ON_NODE / {{ launch.gpus_per_node }}))
+export OMP_NUM_THREADS=$(({{ launch.cpus_per_node }} / {{ launch.gpus_per_node }}))
+
+# NCCL Env Vars
+export UCX_RC_TIMEOUT=900s
+export UCX_UD_TIMEOUT=900s
+export UCX_DC_TIMEOUT=900s
+export NCCL_SOCKET_IFNAME=ib0
+export NCCL_IB_SL=1
+export UCX_IB_SL=1
+export NVSHMEM_IB_SL=1
+export NVSHMEM_DISABLE_NCCL=1
+#export TORCH_NCCL_BLOCKING_WAIT=1
+
 srun ${SRUN_ARGS} -- \
     torchrun ${TORCHRUN_ARGS} \
     pretrain_gpt.py \

@@ -1,0 +1,56 @@
+#!/bin/bash
+
+set -euo pipefail
+
+{{ launch.activate_env_cmd }}
+
+CKPT_DIR={{ eval.hf_ckpt_dir }}
+OUTPUT_DIR={{ eval.output_dir }}
+IFS=','
+ALL_TASKS={{ eval.tasks }}
+read -ra ALL_TASKS_ARR <<< "$ALL_TASKS"
+
+# Reset IFS to default (optional)
+unset IFS
+
+for TASK in "${ALL_TASKS_ARR[@]}"; do
+    TASK_DIR=$OUTPUT_DIR/$TASK
+    mkdir -p $TASK_DIR
+
+    SRUN_ARGS=" \
+        --job-name=eval-$TASK \
+        --nodes=1 \
+        --tasks-per-node=1 \
+        --cpus-per-task={{ launch.cpus_per_task }} \
+        --gpus-per-task={{ launch.gpus_per_task }} \
+        --output=$TASK_DIR/slurm.out \
+        --error=$TASK_DIR/slurm.err \
+        {%- if 'time' in launch and launch.time %}
+        --time={{ launch.time }} \
+        {%- endif %}
+        {%- if 'account' in launch and launch.account %}
+        --account={{ launch.account }} \
+        {%- endif %}
+        {%- if 'partition' in launch and launch.partition %}
+        --partition={{ launch.partition }} \
+        {%- endif %}
+        {%- if 'qos' in launch and launch.qos %}
+        --qos={{ launch.qos }} \
+        {%- endif %}
+        "
+
+    EVAL_ARGS=" \
+        --model hf \
+        --model_args pretrained=$CKPT_DIR \
+        --tasks $TASK \
+        --num_fewshot {{ eval.num_fewshot }} \
+        --output_path $TASK_DIR \
+        --log_samples \
+        --batch_size auto"
+
+    # Submit the evaluation job with Slurm
+    srun $SRUN_ARGS -- lm_eval $EVAL_ARGS &
+done
+
+# Wait for all jobs to finish
+wait

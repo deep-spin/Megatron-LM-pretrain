@@ -70,7 +70,7 @@ def convert_hf2mcore(args):
             mcore_sds, hf_sd, layer_info,
             dim=dim, tp_size=tp_size, ep_size=ep_size, dtype=dtype,
         )
-        
+
         print("  > Converting attention output")
         convert_hf2mcore_attn_output(
             mcore_sds, hf_sd, layer_info, tp_size=tp_size, ep_size=ep_size, dtype=dtype
@@ -95,7 +95,7 @@ def convert_hf2mcore(args):
             dtype=dtype,
             moe_grouped_gemm=args.moe_grouped_gemm,
         )
-        
+
         print("  > Converting mlp experts W2")
         convert_hf2mcore_mlp_experts_w2(
             mcore_sds, hf_sd, layer_info,
@@ -113,7 +113,7 @@ def convert_hf2mcore(args):
     os.makedirs(args.mcore_save_dir, exist_ok=True)
     with open(f"{args.mcore_save_dir}/latest_checkpointed_iteration.txt", "w") as f:
         f.write(f"{margs.iteration}\n")
-    
+
     iter_dir = f"{args.mcore_save_dir}/iter_{margs.iteration:07d}"
     for pp_rank, ep_rank, tp_rank in product(range(pp_size), range(ep_size), range(tp_size)):
         print(f"  > Saving pp_rank={pp_rank}, ep_rank={ep_rank}, tp_rank={tp_rank}")
@@ -150,16 +150,11 @@ def convert_mcore2hf(args):
         exit(1)
 
     print(f"> Loading MCore checkpoints")
-    assert os.path.exists(f"{args.mcore_load_dir}/latest_checkpointed_iteration.txt")
-    assert os.path.isfile(f"{args.mcore_load_dir}/latest_checkpointed_iteration.txt")
-    with open(f"{args.mcore_load_dir}/latest_checkpointed_iteration.txt", "r") as f:
-        iteration = int(f.read().strip())
 
     mcore_sds = [
         [[{} for _ in range(tp_size)] for _ in range(ep_size)] for _ in range(pp_size)
     ]
 
-    iter_dir = f"{args.mcore_load_dir}/iter_{iteration:07d}"
     mcore_args = []
     for pp_rank, ep_rank, tp_rank in product(range(pp_size), range(ep_size), range(tp_size)):
         print(f"  > Loading pp_rank={pp_rank}, ep_rank={ep_rank}, tp_rank={tp_rank}")
@@ -170,11 +165,9 @@ def convert_mcore2hf(args):
             ep_rank=ep_rank,
             ep_size=ep_size,
         )
-        save_dir = f"{iter_dir}/{sub_dir_name}"
+        save_dir = f"{args.mcore_load_dir}/{sub_dir_name}"
         ckpt_sd = torch.load(f"{save_dir}/model_optim_rng.pt")
         assert ckpt_sd["checkpoint_version"] == 3.0
-        assert ckpt_sd["iteration"] == iteration
-        assert ckpt_sd["num_floating_point_operations_so_far"] == 0
         mcore_args.append(ckpt_sd["args"])
         mcore_sds[pp_rank][ep_rank][tp_rank] = ckpt_sd["model"]
 
@@ -219,7 +212,7 @@ def convert_mcore2hf(args):
             ep_size=ep_size,
             dtype=dtype,
         )
-        
+
         print("  > Converting attention output")
         convert_mcore2hf_attn_output(
             hf_sd, mcore_sds, layer_info, tp_size=tp_size, ep_size=ep_size, dtype=dtype
@@ -244,7 +237,7 @@ def convert_mcore2hf(args):
             dtype=dtype,
             moe_grouped_gemm=args.moe_grouped_gemm,
         )
-        
+
         print("  > Converting mlp experts W2")
         convert_mcore2hf_mlp_experts_w2(
             hf_sd, mcore_sds, layer_info,
@@ -259,12 +252,18 @@ def convert_mcore2hf(args):
         for key in mcore_sds[pp_rank][ep_rank][tp_rank]:
             print(f"Warning: Unconverted key: {key} at pp_rank={pp_rank}, ep_rank={ep_rank}, tp_rank={tp_rank}")
 
+    # Megatron is not saving the vocab size sometimes
+    found_vocab_size = hf_sd["model.embed_tokens.weight"].shape[0]
+    if hf_config.vocab_size is None:
+        hf_config.vocab_size = found_vocab_size
+    assert hf_config.vocab_size == found_vocab_size
+
     print(f"> Creating HF model")
     os.makedirs(args.hf_save_dir, exist_ok=True)
     with init_empty_weights():
         hf_model = AutoModelForCausalLM.from_config(hf_config)
     hf_model.load_state_dict(hf_sd, assign=True)
-    
+
     print(f"> Saving HF model")
     hf_model.save_pretrained(args.hf_save_dir)
 
@@ -328,14 +327,14 @@ def get_megatron_args(*, hf_config, save_dir, pp_size, tp_size, ep_size, dtype):
         dummy_args.append("--fp16")
     elif dtype == torch.bfloat16:
         dummy_args.append("--bf16")
-    
+
     sys.argv = dummy_args
 
     from megatron.training.arguments import (parse_args, validate_args)
-    
+
     # Overwrite world size as parse args will check it.
     os.environ["WORLD_SIZE"] = str(pp_size * ep_size * tp_size)
-    
+
     margs = parse_args()
     margs.iteration = 1
     validate_args(margs)
@@ -353,7 +352,7 @@ def get_hf_config(margs):
     assert margs.normalization == "RMSNorm"
     assert margs.swiglu
     assert margs.untie_embeddings_and_output_weights
-    assert margs.disable_bias_linear
+    assert not margs.add_bias_linear
 
     hf_config = MixtralConfig(
         num_hidden_layers=margs.num_layers,
@@ -377,7 +376,7 @@ def convert_hf2mcore_embedding(mcore_sds, hf_sd, *, tp_size, ep_size, dtype):
 
     hf_embeddings = hf_sd.pop(hf_embeds_name).to(dtype)
     embedding_shards = hf_embeddings.chunk(tp_size, dim=0)
-    for ep_rank, tp_rank in product(range(ep_size), range(tp_size)):  
+    for ep_rank, tp_rank in product(range(ep_size), range(tp_size)):
         mcore_sds[0][ep_rank][tp_rank][mcore_embeds_name] = embedding_shards[tp_rank]
 
 
@@ -402,8 +401,8 @@ def convert_hf2mcore_final_layernorm_and_lm_head(
     final_layernorm = hf_sd.pop("model.norm.weight").to(dtype)
     lm_head = hf_sd.pop("lm_head.weight").to(dtype)
     lm_head_shards = lm_head.chunk(tp_size, dim=0)
-    
-    for ep_rank, tp_rank in product(range(ep_size), range(tp_size)):  
+
+    for ep_rank, tp_rank in product(range(ep_size), range(tp_size)):
         mcore_sds[-1][ep_rank][tp_rank]["decoder.final_layernorm.weight"] = final_layernorm
         mcore_sds[-1][ep_rank][tp_rank]["output_layer.weight"] = lm_head_shards[tp_rank]
         mcore_sds[-1][ep_rank][tp_rank]["output_layer._extra_state"] = None
@@ -421,7 +420,7 @@ def convert_mcore2hf_final_layernorm_and_lm_head(hf_sd, mcore_sds, *, tp_size, e
         for ep_rank in range(ep_size):
             final_layernorm = mcore_sds[-1][ep_rank][tp_rank].pop(mcore_layernorm_name)
             final_layernorms.append(final_layernorm)
-        
+
             lm_head_shard = mcore_sds[-1][ep_rank][tp_rank].pop(mcore_output_name)
             _ = mcore_sds[-1][ep_rank][tp_rank].pop(mcore_output_extra)
             ep_lm_head_shards.append(lm_head_shard)
@@ -481,7 +480,7 @@ def convert_hf2mcore_attn_qkv(
     q_proj = hf_sd.pop(hf_q_proj_name).to(dtype)
     k_proj = hf_sd.pop(hf_k_proj_name).to(dtype)
     v_proj = hf_sd.pop(hf_v_proj_name).to(dtype)
-    
+
     num_q_proj, hidden_size = q_proj.size()
     num_kv_proj, _ = k_proj.size()
 
@@ -495,7 +494,7 @@ def convert_hf2mcore_attn_qkv(
         v_proj.reshape((num_kv_heads, dim, -1)),
     ], dim=1).reshape((-1, hidden_size))
     qkv_shards = qkv.chunk(tp_size, dim=0)
-    
+
     for ep_rank, tp_rank in product(range(ep_size), range(tp_size)):
         mcore_sds[pp_rank][ep_rank][tp_rank][mcore_qkv_name] = qkv_shards[tp_rank]
         mcore_sds[pp_rank][ep_rank][tp_rank][mcore_qkv_extra] = None
@@ -587,7 +586,7 @@ def convert_mcore2hf_attn_output(hf_sd, mcore_sds, layer_info, *, tp_size, ep_si
         for ep_rank in range(ep_size):
             ep_shards.append(mcore_sds[pp_rank][ep_rank][tp_rank].pop(mcore_o_proj_name))
             _ = mcore_sds[pp_rank][ep_rank][tp_rank].pop(mcore_o_proj_extra)
-        
+
         assert all([ep_shards[0].equal(shard) for shard in ep_shards])
         o_proj_shards.append(ep_shards[0])
     o_proj = torch.cat(o_proj_shards, dim=1)
@@ -680,7 +679,7 @@ def convert_hf2mcore_mlp_experts_w1_w3(
     full_w3 = torch.stack(hf_experts_w3, dim=0)
     num_experts, out_features, in_features = full_w1.size()
     assert num_experts % ep_size == 0
-    
+
     num_local_experts = num_experts // ep_size
     full_w1 = full_w1.view(
         ep_size, num_local_experts, tp_size, out_features // tp_size, in_features
@@ -808,9 +807,9 @@ def convert_hf2mcore_mlp_experts_w2(
         for i in range(num_experts)
     ]
     hf_experts_w2 = [hf_sd.pop(name).to(dtype) for name in hf_experts_w2_names]
-    
+
     full_w2 = torch.stack(hf_experts_w2, dim=0)
-    
+
     num_experts, out_features, in_features = full_w2.size()
     num_local_experts = num_experts // ep_size
 
@@ -949,7 +948,7 @@ def add_hf2mcore_subparser(subparsers):
     return hf2mcore_parser
 
 def add_mcore2hf_subparser(subparsers):
-    
+
     # Arguments for 'mg2hf' direction
     mcore2hf_parser = subparsers.add_parser(
         'mcore-to-hf', help="Arguments for 'mcore-to-hf' direction."
@@ -962,7 +961,7 @@ def add_mcore2hf_subparser(subparsers):
     mcore2hf_parser.add_argument("--target-params-dtype", type=str, default='float32')
     mcore2hf_parser.add_argument("--moe-grouped-gemm", action="store_true")
     mcore2hf_parser.add_argument("--hf-tokenizer-path", type=str, default=None)
-    
+
     return mcore2hf_parser
 
 if __name__ == "__main__":
