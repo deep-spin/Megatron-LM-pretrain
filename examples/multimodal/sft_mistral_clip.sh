@@ -48,6 +48,7 @@ else
     LI=10
     EXTRA_ARGS=""
     NONDETERMINISTIC_ATTN=1
+    TRAIN_ITERS=5000
 fi
 
 OPTIONS=" \
@@ -80,10 +81,10 @@ OPTIONS=" \
     --decoder-seq-length 2048 \
     --max-position-embeddings 4096 \
     --ffn-hidden-size 14336 \
-    --train-iters 20000 \
+    --train-iters ${TRAIN_ITERS} \
     --micro-batch-size 8 \
     --global-batch-size ${BZ} \
-    --lr-decay-iters 20000 \
+    --lr-decay-iters ${TRAIN_ITERS} \
     --lr-warmup-fraction .01 \
     --lr 1e-6 \
     --min-lr 1e-7 \

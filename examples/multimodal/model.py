@@ -13,7 +13,7 @@ from megatron.training.arguments import core_transformer_config_from_args
 
 
 def model_provider(
-    pre_process=True, post_process=True, add_encoder=True, add_decoder=True, parallel_output=True
+    pre_process=True, post_process=True, add_encoder=True, add_decoder=True, parallel_output=True, args=None
 ) -> LLaVAModel:
     """Builds the model.
 
@@ -29,7 +29,7 @@ def model_provider(
     Returns:
         model: A multimodal model.
     """
-    args = get_args()
+    args = get_args() if args is None else args
 
     use_te = args.use_te
 
@@ -41,7 +41,7 @@ def model_provider(
     )
     old_seq_length = args.seq_length
     args.seq_length = args.encoder_seq_length = num_image_embeddings
-    if torch.distributed.get_rank() == 0 and old_seq_length != args.seq_length:
+    if (not torch.distributed.is_initialized() or torch.distributed.get_rank() == 0) and old_seq_length != args.seq_length:
         warnings.warn(
             f"Changed seq_length and encoder_seq_length (vision model sequence length) from {old_seq_length} to num_image_tokens ({num_image_embeddings})"
         )
@@ -60,7 +60,7 @@ def model_provider(
             f"Expanded max_position_embeddings to {args.max_position_embeddings} to accommodate the maximum language model sequence length"
         )
 
-    base_config = core_transformer_config_from_args(get_args())
+    base_config = core_transformer_config_from_args(args)
     base_config.language_model_type = args.language_model_type
     base_config.vision_model_type = args.vision_model_type
     base_config.calculate_per_token_loss = True

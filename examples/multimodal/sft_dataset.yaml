@@ -4,12 +4,12 @@ splits:
   train:
     datasets:
       - weight: 1.
-        path: <path_to_sft_dataset_in_energon_format>
+        path: /mnt/cephfs-nvme/jalves/tower_vision/data/LLaVA-Instruct-150K/wds
         subflavors:
           augmentation: false
   val:
     datasets:
       - weight: 1.
-        path: <path_to_sft_dataset_in_energon_format>
+        path: /mnt/cephfs-nvme/jalves/tower_vision/data/LLaVA-Instruct-150K/wds
         subflavors:
           augmentation: false

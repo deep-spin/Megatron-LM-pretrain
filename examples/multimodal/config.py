@@ -114,7 +114,7 @@ def get_vision_model_config(config, apply_query_key_layer_scaling):
 def get_vision_projection_config(config, hidden_size):
     config.gated_linear_unit = False
     config.bias_activation_fusion = False
-    config.add_bias_linear = False
+    config.add_bias_linear = True # This was changed to make it compatible with HF's LLava
     config.hidden_size = hidden_size  # Used as the vision projection output size, i.e., the input to the language model.
     if config.language_model_type == "2b":
         config.ffn_hidden_size = 5440
@@ -126,7 +126,8 @@ def get_vision_projection_config(config, hidden_size):
         config.ffn_hidden_size = 14336
         config.activation_func = torch.nn.functional.gelu
     elif config.language_model_type == "mistral_7b":
-        config.ffn_hidden_size = 14336
+        # TODO: check what needs to be done for other models
+        config.ffn_hidden_size = hidden_size # This was changed to make it compatible with HF's LLava
         config.activation_func = torch.nn.functional.gelu
 
     return config

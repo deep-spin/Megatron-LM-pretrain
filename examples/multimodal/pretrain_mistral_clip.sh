@@ -42,6 +42,21 @@ if [[ $DEBUG -eq 1 ]]; then
     EXTRA_ARGS=""
     NONDETERMINISTIC_ATTN=1
 else
+    # Original hparams
+    # TRAIN_ITERS=20000
+    # SAVE_INTERVAL=2000
+    # EVAL_INTERVAL=1000
+    # LR=0.00015
+    # LR_WARMUP_FRACTION=0.01
+
+    # LlaVA hparams
+    TRAIN_ITERS=2000
+    SAVE_INTERVAL=500
+    EVAL_INTERVAL=500
+    LR=0.001
+    LR_WARMUP_FRACTION=0.03
+
+
     BZ=256
     NW=2
     HD=0.1
@@ -80,22 +95,22 @@ OPTIONS=" \
     --decoder-seq-length 1024 \
     --max-position-embeddings 4096 \
     --ffn-hidden-size 14336 \
-    --train-iters 20000 \
+    --train-iters ${TRAIN_ITERS} \
     --micro-batch-size 16 \
     --global-batch-size ${BZ} \
-    --lr-decay-iters 20000 \
+    --lr-decay-iters ${TRAIN_ITERS} \
     --lr-warmup-fraction .01 \
-    --lr 0.00015 \
+    --lr ${LR} \
     --min-lr 1.0e-5 \
     --lr-decay-style cosine \
     --log-interval ${LI} \
     --eval-iters 10 \
-    --eval-interval 1000 \
+    --eval-interval ${EVAL_INTERVAL} \
     --tokenizer-type HuggingFaceTokenizer \
     --tokenizer-model ${TOKENIZER_MODEL} \
     --data-path ${DATA_TRAIN} \
     --prompt-path ${SOURCE}/examples/multimodal/manual_prompts.json \
-    --save-interval 2000 \
+    --save-interval ${SAVE_INTERVAL} \
     --save ${FINETUNE_DIR} \
     --load ${FINETUNE_DIR} \
     --dataloader-save ${FINETUNE_DIR}/dataloader \
