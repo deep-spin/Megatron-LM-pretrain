@@ -1,9 +1,12 @@
 #/bin/bash
+# get dir of this script
+SCRIPT_DIR=$(dirname $(readlink -f $0))
+
 MCORE_MISTRAL=$1    # <path_to_mcore_mistral_model_folder>
 MCORE_CLIP=$2   # <path_to_mcore_clip_model_folder>
 OUTPUT_DIR=$3   # <path_to_output_folder_for_combined_checkpoint>
 
-python examples/multimodal/combine_state_dicts.py \
+python ${SCRIPT_DIR}/combine_state_dicts.py \
     --input \
     ${MCORE_MISTRAL}/iter_0000001/mp_rank_00/model_optim_rng.pt \
     ${MCORE_CLIP}/iter_0000001/mp_rank_00/model_optim_rng.pt \
