@@ -178,6 +178,10 @@ class TransformerLayer(MegatronModule, BaseTransformerLayer):
     def _get_layer_offset(self):
         """Get the index number of this layer, given the level of pipelining."""
         pipeline_rank = parallel_state.get_pipeline_model_parallel_rank()
+        if not parallel_state.is_inside_encoder():
+            pp_decoder_start = parallel_state.get_pipeline_model_parallel_decoder_start()
+            if pp_decoder_start is not None:
+                pipeline_rank = pipeline_rank - pp_decoder_start
 
         num_layers_per_pipeline_rank = (
             self.config.num_layers // self.config.pipeline_model_parallel_size
@@ -194,13 +198,13 @@ class TransformerLayer(MegatronModule, BaseTransformerLayer):
 
         else:
             # Each stage gets a contiguous set of layers.
-            if parallel_state.get_pipeline_model_parallel_world_size() > 1:
+            if self.config.pipeline_model_parallel_size > 1:
                 if (
                     self.config.first_pipeline_num_layers is not None
                     or self.config.last_pipeline_num_layers is not None
                 ):
                     # Calculate number of pipelines for distributing layers
-                    middle_pipeline_stages = parallel_state.get_pipeline_model_parallel_world_size()
+                    middle_pipeline_stages = self.config.pipeline_model_parallel_size
                     middle_pipeline_stages -= sum(
                         [
                             1 if x is not None else 0
@@ -258,6 +262,9 @@ class TransformerLayer(MegatronModule, BaseTransformerLayer):
         context=None,
         context_mask=None,
         rotary_pos_emb=None,
+        rotary_pos_cos=None,
+        rotary_pos_sin=None,
+        attention_bias=None,
         inference_params=None,
         packed_seq_params=None,
     ):
@@ -274,6 +281,7 @@ class TransformerLayer(MegatronModule, BaseTransformerLayer):
             context (Tensor, optional): Context tensor for cross-attention.
             context_mask (Tensor, optional): Mask tensor for cross-attention.
             rotary_pos_emb (Tensor, optional): Rotary positional embeddings.
+            attention_bias (Tensor, optional): Bias tensor for Q * K.T.
             inference_params (object, optional): Parameters for inference-time optimizations.
             packed_seq_params (object, optional): Parameters for packed sequence processing.
 
@@ -296,6 +304,9 @@ class TransformerLayer(MegatronModule, BaseTransformerLayer):
             attention_mask=attention_mask,
             inference_params=inference_params,
             rotary_pos_emb=rotary_pos_emb,
+            rotary_pos_cos=rotary_pos_cos,
+            rotary_pos_sin=rotary_pos_sin,
+            attention_bias=attention_bias,
             packed_seq_params=packed_seq_params,
         )
 
