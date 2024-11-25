@@ -11,13 +11,10 @@ try:
     from transformer_engine.pytorch.optimizers import multi_tensor_applier, multi_tensor_l2norm
 except ImportError:
     try:
+        from amp_C import multi_tensor_l2norm
         from apex.multi_tensor_apply import multi_tensor_applier
     except ImportError:
-        multi_tensor_applier = None
 
-    try:
-        from amp_C import multi_tensor_l2norm
-    except ImportError:
         import warnings
         warnings.warn(
             f'Transformer Engine and Apex are not installed. '
@@ -37,11 +34,15 @@ from megatron.training import (
 from megatron.core import DistributedDataParallel as DDP
 from megatron.core import mpu
 from megatron.core.tensor_parallel import param_is_not_tensor_parallel_duplicate
+from megatron.core.utils import get_data_parallel_group_if_dtensor, to_local_if_dtensor
 from megatron.legacy.model import Float16Module
 from megatron.legacy.model.module import param_is_not_shared
 
-
-ALL_MODULE_WRAPPER_CLASSNAMES = (DDP, Float16Module)
+try:
+    from megatron.core.distributed import TorchFullyShardedDataParallel as torch_FSDP
+    ALL_MODULE_WRAPPER_CLASSNAMES = (DDP, torch_FSDP, Float16Module)
+except ImportError:
+    ALL_MODULE_WRAPPER_CLASSNAMES = (DDP, Float16Module)
 
 
 def unwrap_model(model, module_instances=ALL_MODULE_WRAPPER_CLASSNAMES):
@@ -64,21 +65,28 @@ def calc_params_l2_norm(model):
     args = get_args()
     if not isinstance(model, list):
         model = [model]
-    # Remove duplicate params.
+    # Seperate moe and dense params
     params_data = []
-    for model_ in model:
-        for param in model_.parameters():
+    moe_params_data = []
+    data_parallel_group = None
+
+    for model_chunk in model:
+        for i, param in enumerate(model_chunk.parameters()):
+            data_parallel_group = get_data_parallel_group_if_dtensor(param, data_parallel_group)
             is_not_tp_duplicate = param_is_not_tensor_parallel_duplicate(param)
-            if mpu.get_expert_model_parallel_rank() > 0:
-                if not getattr(param, 'allreduce', True) and is_not_tp_duplicate:
-                    assert param_is_not_shared(param)
-                    params_data.append(param.data.float() if args.bf16 else param.data)
+            if not (param.requires_grad and is_not_tp_duplicate):
+                continue
+            assert is_not_tp_duplicate
+            if not getattr(param, 'allreduce', True):
+                assert param_is_not_shared(param)
+                param = to_local_if_dtensor(param)
+                moe_params_data.append(param.data.float() if args.bf16 else param.data)
             else:
-                is_not_shared = param_is_not_shared(param)
-                if is_not_shared and is_not_tp_duplicate:
+                if param_is_not_shared(param):
+                    param = to_local_if_dtensor(param)
                     params_data.append(param.data.float() if args.bf16 else param.data)
 
-    # Calculate norm
+    # Calculate dense param norm
     dummy_overflow_buf = torch.tensor([0], dtype=torch.int, device='cuda')
     norm, _ = multi_tensor_applier(
         multi_tensor_l2norm,
@@ -87,19 +95,34 @@ def calc_params_l2_norm(model):
         False # no per-parameter norm
     )
     norm_2 = norm * norm
-    if mpu.get_expert_model_parallel_world_size() == 1:
-        # Sum across all model-parallel GPUs(tensor + pipeline).
+
+    if data_parallel_group is not None:
         torch.distributed.all_reduce(norm_2,
                                      op=torch.distributed.ReduceOp.SUM,
-                                     group=mpu.get_model_parallel_group())
-    else:
-        # Sum across tensor, pipeline and expert model-parallel GPUs.
-        torch.distributed.all_reduce(norm_2,
-                                     op=torch.distributed.ReduceOp.SUM,
-                                     group=mpu.get_tensor_and_expert_parallel_group())
-        torch.distributed.all_reduce(norm_2,
-                                     op=torch.distributed.ReduceOp.SUM,
-                                     group=mpu.get_pipeline_model_parallel_group())
+                                     group=data_parallel_group)
+
+    # Sum across all model-parallel GPUs(tensor + pipeline).
+    torch.distributed.all_reduce(
+        norm_2,
+        op=torch.distributed.ReduceOp.SUM,
+        group=mpu.get_model_parallel_group()
+    )
+    # Calculate moe norm
+    if len(moe_params_data) > 0:
+        moe_norm, _ = multi_tensor_applier(
+            multi_tensor_l2norm,
+            dummy_overflow_buf,
+            [moe_params_data],
+            False # no per-parameter norm
+        )
+        moe_norm_2 = moe_norm * moe_norm
+        # Sum across expert tensor, model and pipeline parallel GPUs.
+        torch.distributed.all_reduce(
+            moe_norm_2,
+            op=torch.distributed.ReduceOp.SUM,
+            group=mpu.get_expert_tensor_model_pipeline_parallel_group()
+        )
+        norm_2 += moe_norm_2
     return norm_2.item() ** 0.5
 
 

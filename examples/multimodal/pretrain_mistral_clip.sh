@@ -106,8 +106,9 @@ OPTIONS=" \
     --log-interval ${LI} \
     --eval-iters 10 \
     --eval-interval ${EVAL_INTERVAL} \
-    --tokenizer-type HuggingFaceTokenizer \
+    --tokenizer-type MultimodalTokenizer \
     --tokenizer-model ${TOKENIZER_MODEL} \
+    --tokenizer-prompt-format mistral \
     --data-path ${DATA_TRAIN} \
     --prompt-path ${SOURCE}/examples/multimodal/manual_prompts.json \
     --save-interval ${SAVE_INTERVAL} \
@@ -137,6 +138,7 @@ OPTIONS=" \
     ${EXTRA_ARGS} \
     --distributed-timeout-minutes 60 \
     --allow-missing-vision-projection-checkpoint \
+    --ckpt-format torch
 "
 
 export NVTE_APPLY_QK_LAYER_SCALING=0
