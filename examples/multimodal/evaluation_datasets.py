@@ -124,7 +124,15 @@ class CaptioningDataset(torch.utils.data.Dataset):
         use_thumbnail,
         vision_model_type,
     ):
-        image_files = sorted(glob.glob(input_image_path + "/*"))
+        gts = json.load(open(gt_path))
+        answers = defaultdict(list)
+        image_files = list()
+
+        for gt in gts:
+            image_files.append(input_image_path + "/" + gt["image"])
+            answers[gt["image"]] = gt['caption']
+
+        image_files = sorted(image_files)
 
         # Optionally, process only a subset of the input files.
         if num_partitions > 0:
@@ -132,11 +140,6 @@ class CaptioningDataset(torch.utils.data.Dataset):
                 len(image_files), num_samples_per_partition, num_partitions, partition_id
             )
             image_files = image_files[lb:ub]
-
-        gts = json.load(open(gt_path))
-        answers = defaultdict(list)
-        for gt in gts["annotations"]:
-            answers[gt["image_id"]].append(gt['caption'])
 
         self._image_files = image_files
         self._answers = answers

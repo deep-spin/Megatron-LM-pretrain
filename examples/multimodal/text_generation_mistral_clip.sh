@@ -1,4 +1,5 @@
 #!/bin/bash
+SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 
 export NCCL_IB_SL=1
 export CUDA_DEVICE_MAX_CONNECTIONS=1
@@ -7,6 +8,7 @@ export NVTE_APPLY_QK_LAYER_SCALING=0
 GROUNDTRUTH_PATH="placeholder"
 NUM_FRAMES=1
 NUM_GPUS=4
+BATCH_SIZE=32
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -50,6 +52,11 @@ while [[ $# -gt 0 ]]; do
             shift
             shift
             ;;
+        -b|--batch-size)
+            BATCH_SIZE="$2"
+            shift
+            shift
+            ;;
         --num-gpus)
             NUM_GPUS="$2"
             shift
@@ -69,7 +76,7 @@ END=0
 
 for PARTITION_ID in $( eval echo {$START..$END} )
 do
-    torchrun --nproc_per_node ${NUM_GPUS} examples/multimodal/run_text_generation.py \
+    torchrun --nproc_per_node ${NUM_GPUS} ${SCRIPT_DIR}/run_text_generation.py \
         --apply-layernorm-1p \
         --attention-softmax-in-fp32 \
         --use-flash-attn \
@@ -101,7 +108,7 @@ do
         --tokenizer-model ${TOKENIZER_PATH} \
         --tokenizer-prompt-format mistral \
         --bf16 \
-        --micro-batch-size 32 \
+        --micro-batch-size ${BATCH_SIZE} \
         --seq-length 576 \
         --decoder-seq-length 2048 \
         --out-seq-length 12 \

@@ -27,34 +27,118 @@ def parse_args():
     parser.add_argument("--hf-save-dir", required=True)
     parser.add_argument("--original-text-model-id", required=True)
     parser.add_argument("--original-vision-model-id", required=True)
+    parser.add_argument("--source-tp-size", type=int, default=4)
     parser.add_argument("--target-params-dtype", type=str, default="float16")
     return parser.parse_args()
 
 
 def main():
-    initialize_distributed(tensor_model_parallel_size=1, pipeline_model_parallel_size=1)
-    model_parallel_cuda_manual_seed(123)
     args = parse_args()
     convert_mcore2hf(args)
 
+def get_checkpoint_sub_dir_name(*, tp_rank):
+    """Get the checkpoint subdirectory name based on parallel ranks."""
+    sub_dir_name = f"mp_rank_{tp_rank:02d}"
+    return sub_dir_name
 
-def initialize_distributed(tensor_model_parallel_size=1, pipeline_model_parallel_size=1):
-    parallel_state.destroy_model_parallel()
 
-    rank = int(os.environ['LOCAL_RANK'])
-    world_size = torch.cuda.device_count()
-    torch.cuda.set_device(rank)
-    torch.distributed.init_process_group(world_size=world_size, rank=rank)
-    # Megatron core distributed training initialization
-    parallel_state.initialize_model_parallel(
-        tensor_model_parallel_size=tensor_model_parallel_size,
-        pipeline_model_parallel_size=pipeline_model_parallel_size,
-    )
+def gather_state_dict(mcore_sds, *, tp_size):
+    """
+    Gather all tensor parallel shards into a single state dict.
+    Only concatenates parameters that are actually sharded.
+    
+    Args:
+        mcore_sds: List of state dicts [tp_rank]
+        tp_size: Number of tensor parallel shards
+    
+    Returns:
+        Consolidated state dict with all shards merged
+    """
+    consolidated_sd = {}
+    
+    # Get all unique keys from all shards
+    all_keys = set()
+    for tp_rank in range(tp_size):
+        all_keys.update(mcore_sds[tp_rank].keys())
+    
+    # Define patterns for sharded parameters
+    sharded_output_dim_patterns = [
+        "self_attention.linear_qkv.weight",
+        "self_attention.linear_qkv.bias",
+        "mlp.linear_fc1.weight",
+        "mlp.linear_fc1.bias",
+        "encoder.linear_fc1.weight",
+        "encoder.linear_fc1.bias",
+        "word_embeddings.weight",
+        "output_layer.weight"
+    ] 
+    
+    sharded_input_dim_patterns = [
+        "self_attention.linear_proj.weight",
+        "mlp.linear_fc2.weight",
+        "encoder.linear_fc2.weight",
+    ]
+    
+    # For each key, try to gather the shards
+    for key in all_keys:
+        # Skip args and other non-tensor keys
+        if not isinstance(mcore_sds[0].get(key, None), torch.Tensor):
+            consolidated_sd[key] = mcore_sds[0][key]
+            continue
+            
+        # Collect shards if they exist
+        shards = []
+        for tp_rank in range(tp_size):
+            if key in mcore_sds[tp_rank]:
+                shards.append(mcore_sds[tp_rank][key])
+        
+        # If only one shard exists, use it directly
+        if len(shards) == 1:
+            consolidated_sd[key] = shards[0]
+            continue
+
+        # Check if this parameter should be sharded
+        is_sharded_output = any(pattern in key for pattern in sharded_output_dim_patterns)
+        is_sharded_input = any(pattern in key for pattern in sharded_input_dim_patterns)
+        # special case for language model mlp fc1 weights due to swiglu activation
+        if "language_model" in key and "mlp.linear_fc1.weight" in key:
+            print(key)
+            # Get all shards
+            shards = []
+            for tp_rank in range(tp_size):
+                if key in mcore_sds[tp_rank]:
+                    shard = mcore_sds[tp_rank][key]
+                    # Split each shard into gate and up parts
+                    shard_size = shard.shape[0] // 2
+                    gate_shard = shard[:shard_size]
+                    up_shard = shard[shard_size:]
+                    shards.append((gate_shard, up_shard))
+            
+            # Concatenate gate and up parts separately
+            gate_shards = [s[0] for s in shards]
+            up_shards = [s[1] for s in shards]
+            
+            # Then concatenate them in the correct order
+            consolidated_sd[key] = torch.cat([
+                torch.cat(gate_shards, dim=0),
+                torch.cat(up_shards, dim=0)
+            ], dim=0)
+        elif is_sharded_output:
+            consolidated_sd[key] = torch.cat(shards, dim=0)
+        elif is_sharded_input:
+            consolidated_sd[key] = torch.cat(shards, dim=1)
+        else:
+            # For non-sharded parameters, just take the first shard
+            consolidated_sd[key] = shards[0]
+    
+    return consolidated_sd
+
 
 def convert_mcore2hf(args):
     """Main function to convert MCore checkpoint to HF format"""
     # TODO: add support for casting explicitly to dtype
     dtype = getattr(torch, args.target_params_dtype)
+    tp_size = args.source_tp_size
 
     print(f"> Loading MCore checkpoints")
     assert os.path.exists(f"{args.mcore_load_dir}/latest_checkpointed_iteration.txt")
@@ -64,17 +148,31 @@ def convert_mcore2hf(args):
         iteration = int(f.read().strip())
     iter_dir = f"{args.mcore_load_dir}/iter_{iteration:07d}"
 
-    # start by loading the args from the checkpoint
-    margs = dist_checkpointing.load_common_state_dict(iter_dir)['args']
-    print(f"> Loaded args from checkpoint: {margs}")
-    args.tensor_model_parallel_size = 1
+    # Initialize nested list to store state dicts for each parallel rank
+    mcore_sds = [{} for _ in range(tp_size)]
 
-    # load the model checkpoint itself
-    model = model_provider(args=margs)
-    sharded_state_dict = model.sharded_state_dict(prefix='')
-    checkpoint = dist_checkpointing.load(
-        sharded_state_dict=sharded_state_dict, checkpoint_dir=iter_dir
-    )
+    # Load all checkpoint shards
+    mcore_args = []
+    for tp_rank in range(tp_size):
+        print(f"  > Loading tp_rank={tp_rank}")
+        sub_dir_name = get_checkpoint_sub_dir_name(tp_rank=tp_rank,)
+        checkpoint_path = f"{iter_dir}/{sub_dir_name}/model_optim_rng.pt"
+        checkpoint = torch.load(checkpoint_path, map_location='cpu')
+        mcore_args.append(checkpoint['args'])
+        mcore_sds[tp_rank] = checkpoint['model']
+
+    # Verify all args are the same
+    # TODO: it fails even tho they are the same?
+    # assert all([mcore_args[0] == mcore_arg for mcore_arg in mcore_args])
+    margs = mcore_args[0]
+    print(f"> Loaded args from checkpoint: {margs}")
+
+    #import pdb; pdb.set_trace()
+
+    # Consolidate sharded state dict
+    print(f"> Consolidating sharded checkpoints")
+    checkpoint = gather_state_dict(mcore_sds, tp_size=tp_size)
+
 
     # import pdb; pdb.set_trace()
     # create the HF config
@@ -89,13 +187,13 @@ def convert_mcore2hf(args):
     hf_state_dict = {}
 
     # Convert vision model weights
-    vision_state_dict = convert_mcore2hf_vision_model(checkpoint)
+    vision_state_dict = convert_mcore2hf_vision_model(checkpoint, margs)
 
     # Convert language model weights
-    language_state_dict = convert_mcore2hf_language_model(checkpoint)
+    language_state_dict = convert_mcore2hf_language_model(checkpoint, margs)
 
     # Convert projection weights
-    projection_state_dict = convert_mcore2hf_vision_projection(checkpoint)
+    projection_state_dict = convert_mcore2hf_vision_projection(checkpoint, margs)
 
     # Combine all state dicts
     hf_state_dict.update(vision_state_dict)
@@ -141,6 +239,7 @@ def create_hf_config(original_text_model_id, original_vision_model_id, margs):
     hf_config = LlavaConfig(
         vision_config=vision_config,
         text_config=text_config,
+        vision_feature_layer=-1, # megatron uses the last layer
         # Add any other LLaVA specific configs here
     )
     return hf_config
@@ -154,10 +253,12 @@ def create_hf_processor(hf_config, text_model_id, vision_model_id):
     hf_config.pad_token_id = tokenizer.pad_token_id
 
     try:
+        # WARNING: this was used for custom version transformer
+        # that implemented that llave image processing pipeline 
+        # see https://github.com/huggingface/transformers/pull/33191
+        # for a status on it being merged to the official repo
         from transformers.models.llava.image_processing_llava import LlavaImageProcessor
-        image_processor = LlavaImageProcessor(
-            do_megatron_pp=True,
-        )
+        image_processor = LlavaImageProcessor()
     except ImportError:
         print("> WARNING: could not import LlavaImageProcessor, using AutoImageProcessor instead")
         print("> This might lead to performance degradation due to slightly different image pre-processing")
@@ -167,7 +268,7 @@ def create_hf_processor(hf_config, text_model_id, vision_model_id):
     return processor
 
 
-def convert_mcore2hf_vision_model(mcore_sd):
+def convert_mcore2hf_vision_model(mcore_sd, margs):
     """Convert vision model weights from Megatron to HF format"""
     state_dict = {}
 
@@ -277,67 +378,7 @@ def convert_mcore2hf_vision_model(mcore_sd):
     return state_dict
 
 
-def convert_mcore2hf_vision_model_new(mcore_sd):
-    """Convert vision model weights from Megatron to HF format"""
-    state_dict = {}
-
-    # Vision embedding layers
-    state_dict.update(
-        {
-            "vision_tower.vision_model.embeddings.class_embedding": mcore_sd[
-                "vision_model.class_token"
-            ].squeeze(),
-            "vision_tower.vision_model.embeddings.position_embedding.weight": mcore_sd[
-                "vision_model.position_embeddings.weight"
-            ],
-            "vision_tower.vision_model.embeddings.patch_embedding.weight": mcore_sd[
-                "vision_model.conv1.weight"
-            ],
-            "vision_tower.vision_model.pre_layrnorm.weight": mcore_sd["vision_model.ln_pre.weight"],
-            "vision_tower.vision_model.pre_layrnorm.bias": mcore_sd["vision_model.ln_pre.bias"],
-        }
-    )
-
-    # Vision transformer layers
-    clip_num_layers = 24
-    for layer_i in range(clip_num_layers):
-        hf_layer_prefix = f"vision_tower.vision_model.encoder.layers.{layer_i}"
-        mcore_layer_prefix = f"vision_model.decoder.layers.{layer_i}"
-
-        # Get QKV weights and biases
-        qkv_weight = mcore_sd[f"{mcore_layer_prefix}.self_attention.linear_qkv.weight"]
-        qkv_bias = mcore_sd[f"{mcore_layer_prefix}.self_attention.linear_qkv.bias"]
-
-        # Calculate dimensions
-        hidden_dim = qkv_weight.shape[1]
-        num_heads = mcore_sd["args"].num_attention_heads
-        head_dim = hidden_dim // num_heads
-
-        # Split QKV weights and biases
-        q_weight, k_weight, v_weight = qkv_weight.chunk(3, dim=0)
-        q_bias, k_bias, v_bias = qkv_bias.chunk(3, dim=0)
-
-        # Ensure these are correctly assigned in the state_dict
-        state_dict.update(
-            {
-                f"{hf_layer_prefix}.self_attn.q_proj.weight": q_weight,
-                f"{hf_layer_prefix}.self_attn.k_proj.weight": k_weight,
-                f"{hf_layer_prefix}.self_attn.v_proj.weight": v_weight,
-                f"{hf_layer_prefix}.self_attn.q_proj.bias": q_bias,
-                f"{hf_layer_prefix}.self_attn.k_proj.bias": k_bias,
-                f"{hf_layer_prefix}.self_attn.v_proj.bias": v_bias,
-            }
-        )
-
-    # NOTE: for some reason, Megatron removes the post_layernorm weights and biases
-    # so we need to add them back in for the HF model,
-    # ensuring they perform the identity mapping
-    state_dict["vision_tower.vision_model.post_layernorm.weight"] = torch.ones(1024)
-    state_dict["vision_tower.vision_model.post_layernorm.bias"] = torch.zeros(1024)
-    return state_dict
-
-
-def convert_mcore2hf_language_model(mcore_sd):
+def convert_mcore2hf_language_model(mcore_sd, margs):
     """Convert language model weights from Megatron to HF format"""
     state_dict = {}
 
@@ -353,7 +394,7 @@ def convert_mcore2hf_language_model(mcore_sd):
     state_dict["language_model.lm_head.weight"] = mcore_sd["language_model.output_layer.weight"]
 
     # Transformer layers
-    for layer_i in range(mcore_sd["args"].num_layers):
+    for layer_i in range(margs.num_layers):
         mcore_prefix = f"language_model.decoder.layers.{layer_i}"
         hf_prefix = f"language_model.model.layers.{layer_i}"
 
@@ -378,8 +419,8 @@ def convert_mcore2hf_language_model(mcore_sd):
         # llava_model = LlavaForConditionalGeneration.from_pretrained("llava-hf/llava-1.5-7b-hf")
 
         hidden_size = qkv_weight.shape[1]
-        num_kv_heads = mcore_sd["args"].num_query_groups
-        num_heads = mcore_sd["args"].num_attention_heads
+        num_kv_heads = margs.num_query_groups
+        num_heads = margs.num_attention_heads
         num_queries_per_group = num_heads // num_kv_heads
         head_dim = hidden_size // num_heads
 
@@ -434,7 +475,7 @@ def convert_mcore2hf_language_model(mcore_sd):
     return state_dict
 
 
-def convert_mcore2hf_vision_projection(mcore_sd):
+def convert_mcore2hf_vision_projection(mcore_sd, margs):
     """Convert vision projection weights from Megatron to HF format"""
     state_dict = {}
 
