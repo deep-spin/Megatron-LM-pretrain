@@ -20,8 +20,8 @@ def convert_hf2mcore(args):
     tp_size = args.target_tensor_parallel_size
     ep_size = args.target_expert_parallel_size
 
-    if os.path.exists(args.mcore_save_dir):
-        print(f"Directory {args.mcore_save_dir} already exists.")
+    if os.path.exists(args.mcore_save_dir) and any(os.scandir(args.mcore_save_dir)):
+        print(f"Directory {args.mcore_save_dir} already exists and is not empty.")
         exit(1)
 
     hf_config = AutoConfig.from_pretrained(args.hf_load_dir)

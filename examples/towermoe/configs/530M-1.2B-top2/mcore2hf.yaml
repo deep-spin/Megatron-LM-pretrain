@@ -1,0 +1,7 @@
+launch:
+    job_name: "towermoe-530M-1.2B-top2"
+    run_dir: ./local/runs/${launch.job_name}/
+checkpointing:
+    megatron_ckpts_dir: ./${launch.run_dir}/checkpoints/
+    hf_ckpts_dir: ./${launch.run_dir}/hf-checkpoints/
+    hf_tokenizer_path: ./local/tokenizers/eurollm-tokenizer

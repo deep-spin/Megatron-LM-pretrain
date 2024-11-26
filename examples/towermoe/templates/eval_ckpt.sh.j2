@@ -15,6 +15,12 @@ unset IFS
 
 for TASK in "${ALL_TASKS_ARR[@]}"; do
     TASK_DIR=$OUTPUT_DIR/$TASK
+    
+    if [ -d $TASK_DIR ]; then
+        echo "Output directory $TASK_DIR already exists. Skipping evaluation for $TASK."
+        continue
+    fi
+
     mkdir -p $TASK_DIR
 
     SRUN_ARGS=" \

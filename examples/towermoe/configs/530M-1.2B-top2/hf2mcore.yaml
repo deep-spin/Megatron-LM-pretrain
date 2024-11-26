@@ -1,0 +1,9 @@
+checkpointing:
+    mcore_ckpt_dir: ./local/mcore-pretrained-ckpts/towermoe-530M-1.2B-top2
+    hf_ckpt_dir: ./local/hf-pretrained-ckpts/towermoe-530M-1.2B-top2
+distributed:
+    tensor_model_parallel_size: 1
+    pipeline_model_parallel_size: 1
+    expert_model_parallel_size: 1
+launch:
+    run_dir: ./local/runs/towermoe-530M-1.2B-top2

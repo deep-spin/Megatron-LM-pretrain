@@ -9,9 +9,8 @@ from typing import Any, Optional
 
 @dataclasses.dataclass(frozen=True)
 class CheckpointingArgs:
-    megatron_ckpts_dir: str
-    hf_ckpts_dir: str
-    hf_tokenizer_path: str
+    mcore_ckpt_dir: str
+    hf_ckpt_dir: str
 
 
 @dataclasses.dataclass(frozen=True)
@@ -23,7 +22,6 @@ class DistributedArgs:
 
 @dataclasses.dataclass(frozen=True)
 class LaunchArgs:
-    job_name: str
     run_dir: str
     account: Optional[str] = None
     partition: Optional[str] = None
@@ -48,25 +46,28 @@ def main(
         "megatron_dir": megatron_dir,
     }
 
-    towermoe_dir = f"{megatron_dir}/examples/towermoe"
+    templates_dir = f"{megatron_dir}/examples/towermoe/templates"
 
     jinja_env = jinja2.Environment(
-        loader=jinja2.FileSystemLoader(towermoe_dir),
+        loader=jinja2.FileSystemLoader(templates_dir),
         undefined=jinja2.StrictUndefined,
     )
-    template = jinja_env.get_template("convert.sh.j2")
+
+    script = "hf2mcore.sbatch"
+
+    template = jinja_env.get_template(f"{script}.j2")
 
     run_dir = os.path.abspath(launch.run_dir)
 
     os.makedirs(run_dir, exist_ok=True)
 
-    with open(f"{run_dir}/convert.sh", "w") as f:
+    with open(f"{run_dir}/{script}", "w") as f:
         f.write(template.render(cfg))
 
-    print(f"Converting checkpoints to {checkpointing.hf_ckpts_dir}")
-    os.makedirs(checkpointing.hf_ckpts_dir, exist_ok=True)
+    print(f"Converting checkpoints to {checkpointing.mcore_ckpt_dir}")
+    os.makedirs(checkpointing.mcore_ckpt_dir, exist_ok=True)
 
-    os.system(f"bash {run_dir}/convert.sh")
+    os.system(f"sbatch {run_dir}/{script}")
 
 if __name__ == "__main__":
     jsonargparse.CLI(main, as_positional=False, parser_mode='omegaconf')

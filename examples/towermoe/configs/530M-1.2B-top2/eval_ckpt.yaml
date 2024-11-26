@@ -1,0 +1,4 @@
+eval:
+    tasks: hellaswag,hellaswag_de,hellaswag_es,hellaswag_fr,hellaswag_it,hellaswag_pt,hellaswag_ru,hellaswag_nl,hellaswag_ar,hellaswag_sv,hellaswag_hi,hellaswag_hu,hellaswag_ro,hellaswag_uk,hellaswag_da,hellaswag_ca,arc_challenge,arc_de,arc_es,arc_fr,arc_it,arc_pt,arc_zh,arc_ru,arc_nl,arc_ar,arc_sv,arc_hi,arc_hu,arc_ro,arc_uk,arc_da,arc_ca,mmlu,m_mmlu_de,m_mmlu_es,m_mmlu_fr,m_mmlu_it,m_mmlu_pt,m_mmlu_zh,m_mmlu_ru,m_mmlu_nl,m_mmlu_ar,m_mmlu_sv,m_mmlu_hi,m_mmlu_hu,m_mmlu_ro,m_mmlu_uk,m_mmlu_da,m_mmlu_ca
+    hf_ckpt_dir: ./local/runs/towermoe-530M-1.2B-top2/hf-checkpoints/0002000
+    output_dir: ./local/runs/towermoe-530M-1.2B-top2/evaluation/0002000

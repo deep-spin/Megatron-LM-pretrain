@@ -45,6 +45,9 @@ NETWORK_SIZE_ARGS="\
     --rotary-base 10000 \
     --disable-bias-linear"
 
+TENSORBOARD_DIR={{ launch.run_dir }}/tensorboard
+CPUS_PER_GPU=$(({{ launch.cpus_per_node }} / {{ launch.gpus_per_node }}))
+
 LOGGING_ARGS="\
     {%- if logging.log_params_norm %}
     --log-params-norm \
@@ -55,7 +58,11 @@ LOGGING_ARGS="\
     {%- if logging.log_progress %}
     --log-progress \
     {%- endif %}
-    --log-interval 1
+    --log-interval 1 \
+    --tensorboard-log-interval 10 \
+    --tensorboard-dir ${TENSORBOARD_DIR} \
+    --log-validation-ppl-to-tensorboard \
+    --log-params-norm \
     "
 
 REGULARIZATION_ARGS="\
@@ -75,6 +82,8 @@ TRAINING_ARGS="\
 LEARNING_RATE_ARGS="\
     --lr {{ learning_rate.lr }} \
     --lr-warmup-iters {{ learning_rate.lr_warmup_iters }} \
+    --lr-decay-style {{ learning_rate.lr_decay_style }} \
+    --min-lr {{ learning_rate.min_lr }} \
     "
 
 CHECKPOINTING_ARGS="\
@@ -146,6 +155,7 @@ DATA_ARGS="\
     --split {{ data.split }} \
     {%- endif %}
     --train-iters {{ data.train_iters }} \
+    --num-workers {{ data.num_workers }} \
     "
 
 MOE_ARGS="\
@@ -167,7 +177,7 @@ MOE_ARGS="\
 SRUN_ARGS="\
     --nodes={{ launch.num_nodes }} \
     --ntasks-per-node=1 \
-    --cpus-per-task=${SLURM_CPUS_ON_NODE} \
+    --cpus-per-task={{ launch.cpus_per_node }} \
     --gpus-per-node={{ launch.gpus_per_node }} \
     --cpu-bind=none \
     --mem-bind=none \
@@ -185,7 +195,7 @@ TORCHRUN_ARGS="\
 cd {{ megatron_dir }}
 
 export CUDA_DEVICE_MAX_CONNECTIONS=1
-export OMP_NUM_THREADS=$(({{ launch.cpus_per_node }} / {{ launch.gpus_per_node }}))
+export OMP_NUM_THREADS=$((CPUS_PER_GPU * 2))
 
 # NCCL Env Vars
 export UCX_RC_TIMEOUT=900s
@@ -196,7 +206,10 @@ export NCCL_IB_SL=1
 export UCX_IB_SL=1
 export NVSHMEM_IB_SL=1
 export NVSHMEM_DISABLE_NCCL=1
+export UCX_MEMTYPE_CACHE=n
 #export TORCH_NCCL_BLOCKING_WAIT=1
+
+mkdir -p $TENSORBOARD_DIR
 
 srun ${SRUN_ARGS} -- \
     torchrun ${TORCHRUN_ARGS} \

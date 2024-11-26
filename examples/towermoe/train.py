@@ -46,6 +46,8 @@ class TrainingArgs:
 class LearningRateArgs:
     lr: float
     lr_warmup_iters: int = 0
+    lr_decay_style: str = "constant"
+    min_lr: float = 0.0
 
 
 @dataclasses.dataclass(frozen=True)
@@ -59,7 +61,7 @@ class CheckpointingArgs:
     no_load_rng: bool = False
     pretrained_checkpoint: Optional[str] = None
     no_initialization: bool = False
-    ckpt_format: str = "torch_dist"
+    ckpt_format: str = "torch"
 
 
 @dataclasses.dataclass(frozen=True)
@@ -84,7 +86,7 @@ class DataArgs:
     tokenizer_model: Optional[str] = None
     data_path: list[str] = dataclasses.field(default_factory=list)
     split: Optional[str] = None
-
+    num_workers: int = 12
 
 
 @dataclasses.dataclass(frozen=True)
@@ -144,13 +146,14 @@ def main(
         "megatron_dir": megatron_dir,
     }
 
-    towermoe_dir = f"{megatron_dir}/examples/towermoe"
+    templates_dir = f"{megatron_dir}/examples/towermoe/templates"
 
     jinja_env = jinja2.Environment(
-        loader=jinja2.FileSystemLoader(towermoe_dir),
+        loader=jinja2.FileSystemLoader(templates_dir),
         undefined=jinja2.StrictUndefined,
     )
-    template = jinja_env.get_template("towermoe.sbatch.j2")
+    script = "train.sbatch"
+    template = jinja_env.get_template(f"{script}.j2")
 
     run_dir = os.path.abspath(launch.run_dir)
 
@@ -159,14 +162,14 @@ def main(
     with open(f"{run_dir}/config.json", "w") as f:
         json.dump(cfg, f, indent=2)
 
-    with open(f"{run_dir}/slurm.sbatch", "w") as f:
+    with open(f"{run_dir}/{script}", "w") as f:
         f.write(template.render(cfg))
 
     if checkpointing.save is not None:
         print(f"Saving checkpoints to {checkpointing.save}")
         os.makedirs(checkpointing.save, exist_ok=True)
 
-    os.system(f"sbatch -v {run_dir}/slurm.sbatch")
+    os.system(f"sbatch -v {run_dir}/{script}")
 
 def _build_launch_cfg(launch_args: LaunchArgs) -> dict[str, Any]:
     run_dir = os.path.abspath(launch_args.run_dir)

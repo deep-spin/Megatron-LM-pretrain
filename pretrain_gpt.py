@@ -1,5 +1,8 @@
 # Copyright (c) 2023, NVIDIA CORPORATION.  All rights reserved.
 """Pretrain GPT."""
+import os
+local_rank = int(os.environ["LOCAL_RANK"])
+os.environ["UCX_NET_DEVICES"] = f"mlx5_{local_rank}:1"
 
 import os
 import torch

@@ -1,0 +1,36 @@
+#!/bin/bash
+#SBATCH --nodes=1
+#SBATCH --ntasks-per-node=1
+#SBATCH --cpus-per-task=8
+#SBATCH --gpus-per-task=1
+#SBATCH --hint=nomultithread
+#SBATCH --job-name=hf2mcore
+#SBATCH --output={{ launch.run_dir }}/hf2mcore-%j.out
+#SBATCH --error={{ launch.run_dir }}/hf2mcore-%j.err
+#SBATCH --time=00:30:00
+{%- if 'account' in launch and launch.account %}
+#SBATCH --account={{ launch.account }}
+{%- endif -%}
+{%- if 'partition' in launch and launch.partition %}
+#SBATCH --partition={{ launch.partition }}
+{%- endif -%}
+{%- if 'qos' in launch and launch.qos %}
+#SBATCH --qos={{ launch.qos }}
+{%- endif %}
+
+set -euo pipefail
+
+{{ launch.activate_env_cmd }}
+
+cd {{ megatron_dir }}
+
+# We need this for the async gradient all reduce default argument
+export CUDA_DEVICE_MAX_CONNECTIONS=1
+python examples/mixtral/convert.py hf-to-mcore \
+    --mcore-save-dir "{{ checkpointing.mcore_ckpt_dir }}" \
+    --hf-load-dir "{{ checkpointing.hf_ckpt_dir }}" \
+    --target-tensor-parallel-size "{{ distributed.tensor_model_parallel_size }}" \
+    --target-pipeline-parallel-size "{{ distributed.pipeline_model_parallel_size }}" \
+    --target-expert-parallel-size "{{ distributed.expert_model_parallel_size }}" \
+    --target-params-dtype bfloat16 \
+    --moe-grouped-gemm
