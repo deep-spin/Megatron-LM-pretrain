@@ -11,7 +11,16 @@ global {
     # multimodal model parameters
     # (base lm, tp, etc...)
     clip_original_dir=/lustre/fswork/projects/rech/qjm/ued79zb/clip_model_og/
-    mistral_model="mistralai/Mistral-7B-Instruct-v0.3"
+    mistral_model=(
+        TextModel:
+            mistral="mistralai/Mistral-7B-Instruct-v0.3"
+            tower="Unbabel/TowerInstruct-Mistral-7B-v0.2"
+    )
+    prompt_format=(
+        TextModel:
+            mistral="mistral"
+            tower="chatml"
+    )
     tp=4
     pp=1
 
@@ -37,7 +46,11 @@ global {
 
     # eval arguments
     coco_dir=/lustre/fswork/projects/rech/qjm/ued79zb/coco/
+    mmmu_dir=/dev/null
     eval_bsz=32
+
+    # convert arguments
+    upload_id="patricksf/mistral-7b-clip-prt"
 
     # -- submitter arguments --
     submitter=scslurm
@@ -64,6 +77,11 @@ global {
     eval_time="1:00:00"
     eval_cpus=80
     eval_gres="gpu:4"
+
+    convert_account="qjm@cpu"
+    convert_time="1:00:00"
+    convert_cpus=4
+    convert_partition="prepost"
 }
 
 task PrepareModel
@@ -121,6 +139,7 @@ task PretrainModel
     > model_dir
     :: repo=@
     :: tokenizer_model=$mistral_model
+    :: prompt_format=@
     :: train_iters=$pretrain_iters
     :: batch_size=$pretrain_bsz
     :: lr=$pretrain_lr
@@ -204,7 +223,7 @@ task PretrainModel
         --eval-interval ${eval_interval} \
         --tokenizer-type MultimodalTokenizer \
         --tokenizer-model ${tokenizer_model} \
-        --tokenizer-prompt-format mistral \
+        --tokenizer-prompt-format ${prompt_format} \
         --data-path ${repo}/examples/multimodal/pretrain_dataset.yaml \
         --prompt-path ${repo}/examples/multimodal/manual_prompts.json \
         --save-interval ${save_interval} \
@@ -244,6 +263,7 @@ task EvaluatePretrainedModel
     :: repo=@
     :: eval_bsz=@
     :: tokenizer_model=$mistral_model
+    :: prompt_format=@
     :: .submitter=@
     :: .C=$eval_C
     :: .account=$eval_account
@@ -259,12 +279,13 @@ task EvaluatePretrainedModel
         --output-path coco_outputs \
         --model-path $model_dir \
         --tokenizer-path $tokenizer_model \
+        --tokenizer-prompt-format ${prompt_format} \
         --batch-size $eval_bsz \
         --task captioning
     python $repo/examples/multimodal/evaluate_coco.py \
         --input-path coco_outputs \
         --groundtruth-path $coco_dir/coco_karpathy_test_gt.json \
-        > $coco_results
+        | tee $coco_results
 }
 
 task FineTuneModel
@@ -272,6 +293,7 @@ task FineTuneModel
     > finetuned_dir
     :: repo=@
     :: tokenizer_model=$mistral_model
+    :: prompt_format=@
     :: train_iters=$finetune_iters
     :: batch_size=$finetune_bsz
     :: lr=$finetune_lr
@@ -354,7 +376,7 @@ task FineTuneModel
         --eval-interval ${eval_interval} \
         --tokenizer-type MultimodalTokenizer \
         --tokenizer-model ${tokenizer_model} \
-        --tokenizer-prompt-format mistral \
+        --tokenizer-prompt-format ${prompt_format} \
         --data-path ${repo}/examples/multimodal/sft_dataset.yaml \
         --prompt-path ${repo}/examples/multimodal/manual_prompts.json \
         --save-interval ${save_interval} \
@@ -384,37 +406,85 @@ task FineTuneModel
         --ckpt-format torch
 }
 
-#task EvaluateFinetunedModel
-#    < mmmu_dir=@
-#    < finetuned_dir=@FineTuneModel
-#    > mmmu_results
-#    :: repo=@
-#    :: tokenizer_model=$mistral_model
-#    :: .submitter=@
-#    :: .C=$eval_C
-#    :: .account=$eval_account
-#    :: .time=$eval_time
-#    :: .cpus=$eval_cpus
-#    :: .gres=$eval_gres
-#{
-#    bash $repo/examples/multimodal/text_generation_mistral_clip.sh \
-#        --input-image-path $mmmu_dir \
-#        --gt-path $mmmu_dir/mmmu_test_gt.json \
-#        --output-path mmmu_outputs \
-#        --model-path $finetuned_dir \
-#        --tokenizer-path $tokenizer_model \
-#        --batch-size $eval_bsz \
-#        --task mmmu
-#    python $repo/examples/multimodal/evaluate_mmmu.py \
-#        --input-path "mmmu_outputs-MMMU-dprank\=0-partition\=0.jsonl"
-#}
+task EvaluateFinetunedModel
+    < mmmu_dir=@
+    < finetuned_dir=@FineTuneModel
+    > mmmu_results
+    :: repo=@
+    :: eval_bsz=@
+    :: tokenizer_model=$mistral_model
+    :: prompt_format=@
+    :: .submitter=@
+    :: .C=$eval_C
+    :: .account=$eval_account
+    :: .time=$eval_time
+    :: .cpus=$eval_cpus
+    :: .gres=$eval_gres
+{
+    export PYTHONPATH="$PYTHONPATH:$repo/examples/multimodal"
+    bash $repo/examples/multimodal/text_generation_mistral_clip.sh \
+        --input-image-path none \
+        --output-path mmmu_outputs \
+        --model-path $finetuned_dir \
+        --tokenizer-path $tokenizer_model \
+        --tokenizer-prompt-format ${prompt_format} \
+        --batch-size $eval_bsz \
+        --task MMMU
+    python $repo/examples/multimodal/evaluate_mmmu.py \
+        --input-path mmmu_outputs \
+        | tee $mmmu_results
+}
 
-#func ConvertToHF
-#    < model_dir=@
-#    > hf_model_dir
-#    :: repo
-#    :: submitter
-#{
-#    python $repo/examples/multimodal/convert_to_hf.py \
-#}
-#
+func ConvertToHF
+    < model_dir
+    > hf_model_dir
+    :: repo
+    :: mistral_model
+    :: upload_id
+{
+    python $repo/examples/multimodal/convert_to_hf.py     \
+        --mcore-load-dir $model_dir  \
+        --hf-save-dir $hf_model_dir   \
+        --original-text-model-id $mistral_model     \
+        --original-vision-model-id openai/clip-vit-large-patch14-336 \
+        --upload-to-hub $upload_id
+}
+
+task ConvertPretrainedModel calls ConvertToHF
+    < model_dir=@PretrainModel
+    > hf_model_dir
+    :: repo=@
+    :: mistral_model=@
+    :: upload_id=@
+    :: .submitter=@
+    :: .account=$convert_account
+    :: .time=$convert_time
+    :: .cpus=$convert_cpus
+    :: .partition=$convert_partition
+
+task ConvertFinetunedModel calls ConvertToHF
+    < model_dir=$finetuned_dir@FineTuneModel
+    > hf_model_dir
+    :: repo=@
+    :: mistral_model=@
+    :: .submitter=@
+    :: .account=$convert_account
+    :: .time=$convert_time
+    :: .cpus=$convert_cpus
+    :: .partition=$convert_partition
+
+
+plan TrainPipelineMistral {
+    reach EvaluatePretrainedModel
+    reach EvaluateFinetunedModel
+}
+
+plan TrainPipelineTower {
+    reach EvaluatePretrainedModel via (TextModel: tower)
+    reach EvaluateFinetunedModel via (TextModel: tower)
+}
+
+plan ConvertModels {
+    reach ConvertPretrainedModel
+    #reach ConvertFinetunedModel
+}

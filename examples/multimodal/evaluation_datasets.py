@@ -234,7 +234,8 @@ class MMMUDataset(torch.utils.data.Dataset):
             dataset = dataset[lb:ub]
 
         # Using the LLaVA config from the MMMU repo.
-        config = load_yaml("examples/multimodal/MMMU/mmmu/configs/llava1.5.yaml")
+        # TODO: remove the hardcoded path.
+        config = load_yaml("/linkhome/rech/genrce01/ued79zb/repos/Megatron-LM-pretrain/examples/multimodal/MMMU/mmmu/configs/llava1.5.yaml")
         for k, v in config.items():
             if isinstance(v, list):
                 assert len(v) == 1, "only one value supported."

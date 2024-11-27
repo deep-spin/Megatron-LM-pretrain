@@ -29,6 +29,7 @@ def parse_args():
     parser.add_argument("--original-vision-model-id", required=True)
     parser.add_argument("--source-tp-size", type=int, default=4)
     parser.add_argument("--target-params-dtype", type=str, default="float16")
+    parser.add_argument("--upload-to-hub", default=None)
     return parser.parse_args()
 
 
@@ -210,7 +211,8 @@ def convert_mcore2hf(args):
 
     print(f"> Saving HF model to {args.hf_save_dir}")
     hf_model.save_pretrained(args.hf_save_dir)
-
+    if args.upload_to_hub is not None:
+        hf_model.push_to_hub(args.upload_to_hub)
 
 def create_hf_config(original_text_model_id, original_vision_model_id, margs):
     """Create HF config from Megatron checkpoint"""

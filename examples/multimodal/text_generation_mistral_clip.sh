@@ -9,7 +9,7 @@ GROUNDTRUTH_PATH="placeholder"
 NUM_FRAMES=1
 NUM_GPUS=4
 BATCH_SIZE=32
-
+PROMPT_FORMAT="mistral"
 while [[ $# -gt 0 ]]; do
     case $1 in
         --input-image-path)
@@ -39,6 +39,11 @@ while [[ $# -gt 0 ]]; do
             ;;
         -t|--tokenizer-path)
             TOKENIZER_PATH="$2"
+            shift
+            shift
+            ;;
+        --tokenizer-prompt-format)
+            PROMPT_FORMAT="$2"
             shift
             shift
             ;;
@@ -106,7 +111,7 @@ do
         --load ${MODEL_PATH} \
         --tokenizer-type MultimodalTokenizer \
         --tokenizer-model ${TOKENIZER_PATH} \
-        --tokenizer-prompt-format mistral \
+        --tokenizer-prompt-format ${PROMPT_FORMAT} \
         --bf16 \
         --micro-batch-size ${BATCH_SIZE} \
         --seq-length 576 \
