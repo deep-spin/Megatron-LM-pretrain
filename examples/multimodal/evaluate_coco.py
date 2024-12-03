@@ -1,10 +1,56 @@
 # Copyright (c) 2024, NVIDIA CORPORATION.  All rights reserved.
 import argparse
 import json
+import glob
+import os
+from dataclasses import dataclass
 
-from evaluate_mmmu import get_input_output_paths
+#from evaluate_mmmu import get_input_output_paths
 from pycocoevalcap.eval import COCOEvalCap
 from pycocotools.coco import COCO
+
+@dataclass
+class EvaluationConfig:
+    """Evaluation related configuration."""
+    task: str
+
+    temperature: float = 1.0
+    top_p: float = 0.0
+    top_k: int = 0
+
+    out_seq_length: int = 32
+
+    output_path: str = ""
+
+    input_image_path: str = ""
+    gt_path: str = ""
+
+    num_partitions: int = 1
+    partition_id: int = 0
+    num_samples_per_partition: int = 0
+
+
+def get_output_path(config, dp_rank):
+    """Generation output path."""
+    return (
+        f"{config.output_path}-{config.task}-dprank={dp_rank}-partition={config.partition_id}.jsonl"
+    )
+
+def get_input_output_paths(input_path, task):
+    """Get all input files and an output path for a merged file."""
+    # Single input file.
+    if os.path.exists(input_path):
+        input_file_paths = [input_path]
+        output_file_path = input_path.replace(".jsonl", "-merged.json")
+    # Select multiple partitions and dp ranks.
+    else:
+        cfg = EvaluationConfig(task=task, output_path=input_path, partition_id="*")
+        pattern = get_output_path(cfg, dp_rank="*")
+        input_file_paths = glob.glob(pattern)
+
+        output_file_path = input_path + f"-{task}-merged.json"
+
+    return input_file_paths, output_file_path
 
 
 def convert_to_coco_format(input_path):

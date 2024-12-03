@@ -8,7 +8,7 @@ import clip
 
 
 def convert(download_root, output_path, tensor_parallel_size, use_te):
-    device = "cuda"
+    device = "cpu"
 
     model, _ = clip.load("ViT-L/14@336px", device=device, download_root=download_root)
 

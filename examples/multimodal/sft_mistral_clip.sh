@@ -24,17 +24,12 @@ if [[ -z $LOAD_NAME ]]; then
     exit 1
 fi
 
-if [[ -z $LOAD_ITER ]]; then
-    echo "Please set LOAD_ITER for pre-trained input model iteration."
-    exit 1
-fi
-
 if [[ -z $TOKENIZER_MODEL ]]; then
     echo "Please set TOKENIZER_MODEL for tokenizer model name."
     exit 1
 fi
 
-CHECKPOINT_DIR="${WORKSPACE}/${LOAD_NAME}/checkpoints"
+CHECKPOINT_DIR="$LOAD_NAME"
 
 DATA_TRAIN="${SOURCE}/examples/multimodal/sft_dataset.yaml"
 
@@ -53,6 +48,7 @@ else
     LI=10
     EXTRA_ARGS=""
     NONDETERMINISTIC_ATTN=1
+    TRAIN_ITERS=5000
 fi
 
 OPTIONS=" \
@@ -67,7 +63,6 @@ OPTIONS=" \
     --num-query-groups 8 \
     --no-masked-softmax-fusion \
     --num-workers ${NW} \
-    --exit-duration-in-mins 230 \
     --use-flash-attn \
     --untie-embeddings-and-output-weights \
     --disable-bias-linear \
@@ -86,10 +81,10 @@ OPTIONS=" \
     --decoder-seq-length 2048 \
     --max-position-embeddings 4096 \
     --ffn-hidden-size 14336 \
-    --train-iters 20000 \
-    --micro-batch-size 1 \
+    --train-iters ${TRAIN_ITERS} \
+    --micro-batch-size 8 \
     --global-batch-size ${BZ} \
-    --lr-decay-iters 20000 \
+    --lr-decay-iters ${TRAIN_ITERS} \
     --lr-warmup-fraction .01 \
     --lr 1e-6 \
     --min-lr 1e-7 \
@@ -98,7 +93,7 @@ OPTIONS=" \
     --eval-iters 10 \
     --eval-interval 500 \
     --tokenizer-type MultimodalTokenizer \
-    --tokenizer-model ${WORKSPACE}/${TOKENIZER_MODEL} \
+    --tokenizer-model ${TOKENIZER_MODEL} \
     --tokenizer-prompt-format mistral \
     --data-path ${DATA_TRAIN} \
     --prompt-path ${SOURCE}/examples/multimodal/manual_prompts.json \
@@ -116,6 +111,7 @@ OPTIONS=" \
     --log-params-norm \
     --log-num-zeros-in-grad \
     --eod-mask-loss \
+    --bf16 \
     --freeze-ViT \
     --patch-dim 14 \
     --img-h 336 \
@@ -125,11 +121,10 @@ OPTIONS=" \
     --language-model-type=mistral_7b \
     --disable-vision-class-token \
     ${EXTRA_ARGS} \
-    --distributed-timeout-minutes 60 \
-    --ckpt-format torch
+    --distributed-timeout-minutes 60
 "
 
 export NVTE_APPLY_QK_LAYER_SCALING=0
 export NVTE_ALLOW_NONDETERMINISTIC_ALGO=${NONDETERMINISTIC_ATTN}
 
-torchrun --nproc_per_node 8 examples/multimodal/train.py ${OPTIONS}
+torchrun --nproc_per_node 4 --master-port 29700 examples/multimodal/train.py ${OPTIONS}

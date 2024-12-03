@@ -29,13 +29,14 @@ echo "Megatron-LM dir: $DIR"
 
 source ${CONDA_HOME}/etc/profile.d/conda.sh
 # python can't handle this dependency madness, switch to C++
-conda create -y -n ${ENV_NAME} python=3.10
+# conda create -y -n ${ENV_NAME} python=3.10
 conda activate ${ENV_NAME}
 
 
 pip install ninja
 
 # install our own copy of CUDA and set environment variables
+conda install -y openldap
 conda install -y -c "nvidia/label/cuda-12.4.0" cuda-toolkit cuda-nvcc cudnn
 
 export PATH=${CONDA_ENVS}/${ENV_NAME}/bin:$PATH

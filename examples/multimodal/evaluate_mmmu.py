@@ -64,7 +64,7 @@ def mmmu_eval(input_path, groundtruth_path):
     output = subprocess.run(
         [
             "python",
-            "examples/multimodal/MMMU/mmmu/main_eval_only.py",
+            "/linkhome/rech/genrce01/ued79zb/repos/Megatron-LM-pretrain/examples/multimodal/MMMU/mmmu/main_eval_only.py",
             "--output_path",
             result_file,
             "--answer_path",
@@ -85,7 +85,7 @@ def mmmu_eval(input_path, groundtruth_path):
 def main():
     """Run MMMU evaluation."""
     # Using the validation groundtruth file from the MMMU repo by default. This assumes you have cloned the MMMU github repo here.
-    default_groundtruth_path = "examples/multimodal/MMMU/mmmu/answer_dict_val.json"
+    default_groundtruth_path = "/linkhome/rech/genrce01/ued79zb/repos/Megatron-LM-pretrain/examples/multimodal/MMMU/mmmu/answer_dict_val.json"
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--input-path", type=str, required=True, help="Path to input file(s)")

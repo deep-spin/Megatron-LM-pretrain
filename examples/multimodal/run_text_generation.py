@@ -354,7 +354,7 @@ class VLMForwardStep(ForwardStep):
         )
 
     def __call__(self, tokens, position_ids, attention_mask):
-        num_image_tokens = (tokens == self.model.image_token_index).sum().item()
+        num_image_tokens = (tokens == self.model.module.image_token_index).sum().item()
         num_tokens = tokens.size(1)
         recv_buffer_seq_length = None
         if num_image_tokens > 0:
