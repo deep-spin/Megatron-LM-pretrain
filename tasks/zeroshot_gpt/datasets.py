@@ -135,7 +135,10 @@ def _build_wikitext103_dataset():
     with open(args.valid_data[0], "rb") as reader:
         entire_data = reader.read().decode('utf-8')
     num_original_tokens = len(entire_data.strip().split(" "))
-    entire_data = get_detokenizer(args.valid_data[0])(entire_data)
+    try:
+        entire_data = get_detokenizer(args.valid_data[0])(entire_data)
+    except:
+        print('continue')
     tokenized_data = tokenizer.tokenize(entire_data)
     num_tokenized_tokens = len(tokenized_data)
 

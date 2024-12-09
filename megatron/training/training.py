@@ -539,6 +539,7 @@ def setup_model_and_optimizer(model_provider_func,
 
 
 
+
 def train_step(forward_step_func, data_iterator,
                model, optimizer, opt_param_scheduler, config):
     """Single training step."""
@@ -1103,6 +1104,11 @@ def train(forward_step_func, model, optimizer, opt_param_scheduler,
                 gc.collect()
             prefix = 'iteration {}'.format(iteration)
             timers('eval-time', log_level=0).start(barrier=True)
+            # this is a bit hardcoded
+            if args.multiple_valid_sets and valid_data_iterator is None:
+                valid_data_iterator=dict()
+                for valid_path_i in range(0, len(args.valid_data_path), 2):
+                    valid_data_iterator[args.valid_data_path[valid_path_i]]=None
             evaluate_and_print_results(prefix, forward_step_func,
                                        valid_data_iterator, model,
                                        iteration, process_non_loss_data_func,
@@ -1252,7 +1258,6 @@ def evaluate(forward_step_func,
                 decoder_seq_length=args.decoder_seq_length,
                 forward_only=True)
             config.timers = get_timers()
-
             # Empty unused memory
             if args.empty_unused_memory_level >= 1:
                 torch.cuda.empty_cache()
@@ -1327,12 +1332,12 @@ def evaluate_and_print_results(prefix, forward_step_func,
     if args.multiple_valid_sets:
         total_loss_dict=dict()
         collected_non_loss_data=dict()
+        string=''
         for name in data_iterator.keys():
             total_loss_dict[name], collected_non_loss_data[name], timelimit = evaluate(
                 forward_step_func, data_iterator[name], model,
                 process_non_loss_data_func, config, verbose)
         
-        string=''
         for name in data_iterator.keys():
             string += 'dataset ' + name + ' | '
             string += 'validation loss at {} | '.format(prefix)
@@ -1535,13 +1540,17 @@ def build_train_valid_test_data_iterators(
         train_data_iterator = None
 
     if args.multiple_valid_sets:
-        valid_data_iterator=dict()
-        for key in valid_dataloader.keys():
-            valid_data_iterator[key] = _get_iterator(dl_type, valid_dataloader[key])
+        if train_dataloader is not None:
+            valid_data_iterator=dict()
+            for key in valid_dataloader.keys():
+                valid_data_iterator[key] = _get_iterator(dl_type, valid_dataloader[key])
 
-        test_data_iterator=dict()
-        for key in test_dataloader.keys():
-            test_data_iterator[key] = _get_iterator(dl_type, test_dataloader[key])
+            test_data_iterator=dict()
+            for key in test_dataloader.keys():
+                test_data_iterator[key] = _get_iterator(dl_type, test_dataloader[key])
+        else:
+            valid_data_iterator = None
+            test_data_iterator = None
 
     else:
         if valid_dataloader is not None:

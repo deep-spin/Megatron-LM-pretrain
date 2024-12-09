@@ -824,11 +824,14 @@ def load_checkpoint(model, optimizer, opt_param_scheduler, load_arg='load', stri
 
     # Optimizer.
     if not release and not args.finetune and not args.no_load_optim:
+        if args.annealing:
+            for param in state_dict['optimizer']['optimizer']['param_groups']:
+                param['max_lr']=args.lr
+                param['min_lr']=args.min_lr
         try:
             # Load state dict.
             if optimizer is not None:
                 optimizer.load_state_dict(state_dict['optimizer'])
-
             # Load distributed optimizer's custom parameter state.
             # For distributed checkpoint it's already loaded in load_state_dict above
             if args.use_distributed_optimizer and not is_dist_ckpt:
@@ -856,7 +859,7 @@ def load_checkpoint(model, optimizer, opt_param_scheduler, load_arg='load', stri
     else:
         if (args.fp16 or args.bf16) and optimizer is not None:
             optimizer.reload_model_params()
-
+    
     # rng states.
     if not release and not args.finetune and not args.no_load_rng:
         try:
@@ -900,6 +903,9 @@ def load_checkpoint(model, optimizer, opt_param_scheduler, load_arg='load', stri
                  f'[ t {mpu.get_tensor_model_parallel_rank()}, '
                  f'p {mpu.get_pipeline_model_parallel_rank()} ] '
                  f'at iteration {iteration}')
+
+    if args.annealing:
+        iteration=0
 
     return iteration, num_floating_point_operations_so_far
 
