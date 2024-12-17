@@ -1,0 +1,9 @@
+checkpointing:
+    mcore_ckpt_dir: ./local/mcore-pretrained-ckpts/400M-2x8-g8-pre-annealing/
+    hf_ckpt_dir: ./local/hf-pretrained-ckpts/400M-2x8-g8-pre-annealing/
+distributed:
+    tensor_model_parallel_size: 1
+    pipeline_model_parallel_size: 1
+    expert_model_parallel_size: 1
+launch:
+    run_dir: ./local/runs/conversions/400M-2x8-g8-pre-annealing/

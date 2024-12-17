@@ -1,0 +1,7 @@
+launch:
+    job_name: "mcore2hf-400M-2x8-g1-post-annealing-phase1"
+    run_dir: ./local/runs/wsd-ablations/400M-2x8-g1-post-annealing/
+checkpointing:
+    megatron_ckpts_dir: ./${launch.run_dir}/phase1-checkpoints/
+    hf_ckpts_dir: ./${launch.run_dir}/hf-phase1-checkpoints/
+    hf_tokenizer_path: ./local/tokenizers/eurollm-tokenizer

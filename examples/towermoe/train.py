@@ -47,11 +47,15 @@ class LearningRateArgs:
     lr: float
     lr_warmup_iters: int = 0
     lr_decay_style: str = "constant"
+    lr_decay_iters: Optional[int] = None
+    lr_wsd_decay_style: Optional[str] = None
+    lr_wsd_decay_iters: Optional[int] = None
     min_lr: float = 0.0
 
 
 @dataclasses.dataclass(frozen=True)
 class CheckpointingArgs:
+    annealing: bool
     save: Optional[str] = None
     save_interval: Optional[int] = None
     no_save_optim: bool = False

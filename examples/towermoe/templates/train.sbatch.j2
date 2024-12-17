@@ -83,39 +83,55 @@ LEARNING_RATE_ARGS="\
     --lr {{ learning_rate.lr }} \
     --lr-warmup-iters {{ learning_rate.lr_warmup_iters }} \
     --lr-decay-style {{ learning_rate.lr_decay_style }} \
+    {%- if learning_rate.lr_decay_iters %}
+    --lr-decay-iters {{ learning_rate.lr_decay_iters }} \
+    {%- endif %}
+    {%- if learning_rate.lr_wsd_decay_style %}
+    --lr-wsd-decay-style {{ learning_rate.lr_wsd_decay_style }} \
+    {%- endif %}
+    {%- if learning_rate.lr_wsd_decay_iters %}
+    --lr-wsd-decay-iters {{ learning_rate.lr_wsd_decay_iters }} \
+    {%- endif %}
     --min-lr {{ learning_rate.min_lr }} \
     "
 
-CHECKPOINTING_ARGS="\
+SAVE_ARGS="\
     {%- if checkpointing.save %}
     --save {{ checkpointing.save }} \
     {%- endif %}
     {%- if checkpointing.save_interval %}
     --save-interval {{ checkpointing.save_interval }} \
     {%- endif %}
-    {%- if checkpointing.no_save_optim %}
-    --no-save-optim \
-    {%- endif %}
-    {%- if checkpointing.no_save_rng %}
-    --no-save-rng \
-    {%- endif %}
-    {%- if checkpointing.load %}
+    "
+
+{%- if not checkpointing.annealing %}
+# We are in phase 1, and start from the converted model without loading the optimizer state
+LOAD_ARGS="\
     --load {{ checkpointing.load }} \
-    {%- endif %}
-    {%- if checkpointing.no_load_optim %}
-    --no-load-optim \
-    {%- endif %}
-    {%- if checkpointing.no_load_rng %}
-    --no-load-rng \
-    {%- endif %}
-    {%- if checkpointing.pretrained_checkpoint %}
     --pretrained-checkpoint {{ checkpointing.pretrained_checkpoint }} \
-    {%- endif %}
-    {%- if checkpointing.no_initialization %}
-    --no-initialization \
-    {%- endif %}
     --ckpt-format {{ checkpointing.ckpt_format }} \
     "
+{%- else %}
+# We are in annealing mode (phase 2 or later).
+# Check if we have already saved a model during annealing or if this is the first annealing run
+if [ -f "{{ megatron_dir }}/{{ checkpointing.load }}/latest_checkpointed_iteration.txt" ]; then
+    # We have already saved a model during annealing. Just continue as expected
+    LOAD_ARGS="\
+        --load {{ checkpointing.load }} \
+        --ckpt-format {{ checkpointing.ckpt_format }} \
+        "
+else
+    # We are on the first annealing run and need special handling for loading
+    # the model and optimizer state
+    LOAD_ARGS="\
+        --load {{ checkpointing.pretrained_checkpoint }} \
+        --ckpt-format {{ checkpointing.ckpt_format }} \
+        --annealing \
+        "
+fi
+{%- endif %}
+
+CHECKPOINTING_ARGS="${SAVE_ARGS} ${LOAD_ARGS}"
 
 MIXED_PRECISION_ARGS="\
     --bf16 \
@@ -142,6 +158,8 @@ VALIDATION_ARGS="\
     --eval-iters {{ validation.eval_iters }} \
     --eval-interval {{ validation.eval_interval }}"
 
+DATA_CACHE_DIR={{ launch.run_dir }}/data-cache
+
 DATA_ARGS="\
     --seq-length {{ data.seq_length }} \
     --tokenizer-type {{ data.tokenizer_type }} \
@@ -156,6 +174,7 @@ DATA_ARGS="\
     {%- endif %}
     --train-iters {{ data.train_iters }} \
     --num-workers {{ data.num_workers }} \
+    --data-cache-path $DATA_CACHE_DIR \
     "
 
 MOE_ARGS="\

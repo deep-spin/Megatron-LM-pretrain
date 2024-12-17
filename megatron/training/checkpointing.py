@@ -1244,6 +1244,9 @@ def load_checkpoint(model, optimizer, opt_param_scheduler, load_arg='load', stri
                  f'at iteration {iteration}')
 
     torch.cuda.empty_cache()
+    # Hard code overwrite to 0
+    if args.annealing:
+        iteration = 0
     return iteration, num_floating_point_operations_so_far
 
 

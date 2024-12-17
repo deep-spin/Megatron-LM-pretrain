@@ -9,20 +9,22 @@ from transformers import (
     AutoModelForCausalLM, AutoTokenizer, LlamaConfig, MixtralConfig,
 )
 
-from typing import Any, Optional
+from typing import Any
 
 
 def main(
     llama_model_path: str,
     mixtral_model_path: str,
-    num_local_experts: int,
-    num_experts_per_tok: int,
-    intermediate_size: Optional[int] = None,
+    total_expansion: int,
+    active_expansion: int,
+    granularity: int,
     router_aux_loss_coef: float = 0.01,
 ):
     llama = AutoModelForCausalLM.from_pretrained(llama_model_path)
-    if intermediate_size is None:
-        intermediate_size = llama.config.intermediate_size
+    assert llama.config.intermediate_size % granularity == 0, "Granularity should divide intermediate size"
+    intermediate_size = llama.config.intermediate_size // granularity
+    num_experts_per_tok = active_expansion * granularity
+    num_local_experts = total_expansion * granularity
     mixtral_cfg = llama_cfg_to_mixtral_cfg(
         llama.config,
         architectures=["MixtralForCausalLM"],
