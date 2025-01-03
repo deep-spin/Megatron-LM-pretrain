@@ -108,7 +108,9 @@ SAVE_ARGS="\
 # We are in phase 1, and start from the converted model without loading the optimizer state
 LOAD_ARGS="\
     --load {{ checkpointing.load }} \
+    {%- if checkpointing.pretrained_checkpoint %}
     --pretrained-checkpoint {{ checkpointing.pretrained_checkpoint }} \
+    {%- endif %}
     --ckpt-format {{ checkpointing.ckpt_format }} \
     "
 {%- else %}
