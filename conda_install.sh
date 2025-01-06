@@ -29,7 +29,7 @@ echo "Megatron-LM dir: $DIR"
 
 source ${CONDA_HOME}/etc/profile.d/conda.sh
 # python can't handle this dependency madness, switch to C++
-# conda create -y -n ${ENV_NAME} python=3.10
+conda create -y -n ${ENV_NAME} python=3.10
 conda activate ${ENV_NAME}
 
 
