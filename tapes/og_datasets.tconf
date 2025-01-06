@@ -1,0 +1,210 @@
+global {
+    ducttape_experimental_imports=true
+    ducttape_experimental_submitters=true
+    ducttape_experimental_multiproc=true
+
+    ducttape_output=/lustre/fswork/projects/rech/qjm/ued79zb/towervision_outputs
+    repo=/linkhome/rech/genrce01/ued79zb/repos/Megatron-LM-pretrain
+
+    # multimodal model parameters
+    # (base lm, tp, etc...)
+    clip_original_dir=/lustre/fswork/projects/rech/qjm/ued79zb/clip_model_og/
+    model_name=(
+        TextModel:
+            mistral="mistralai/Mistral-7B-Instruct-v0.3"
+            tower="Unbabel/TowerInstruct-Mistral-7B-v0.2"
+            qwen2p5_7b="Qwen/Qwen2.5-7B-Instruct"
+            eurollm_9b="utter-project/EuroLLM-9B-Instruct"
+    )
+    model_type=(
+        TextModel:
+            mistral="mistral-7B"
+            tower="mistral-7B"
+            qwen2p5_7b="qwen2.5-7B"
+            eurollm_9b="eurollm-9B"
+    )
+    prompt_format=(
+        TextModel:
+            mistral="mistral"
+            tower="chatml"
+            qwen2p5_7b="qwen2p0"
+            eurollm_9b="chatml"
+    )
+    image_preproc=(ImagePreproc: basic nvlm)
+    pixel_shuffle=(PixelShuffle: false true)
+    tp=4
+    pp=1
+
+    # pre-training arguments
+    external_model_dir=(
+        TextModel:
+            mistral=/lustre/fswork/projects/rech/qjm/ued79zb/towervision_ckpts/mistral_7b_instruct_prt
+            tower=/lustre/fswork/projects/rech/qjm/ued79zb/towervision_ckpts/tower_7b_instruct_prt
+            qwen2p5_7b=(ImagePreproc:
+                basic=/lustre/fswork/projects/rech/qjm/ued79zb/towervision_ckpts/qwen2p5_7b_instruct_prt
+                nvlm=(
+                    PixelShuffle:
+                        false=/lustre/fswork/projects/rech/qjm/ued79zb/towervision_ckpts/qwen2p5_7b_instruct_prt_nvlm
+                        true=/lustre/fswork/projects/rech/qjm/ued79zb/towervision_ckpts/qwen2p5_7b_instruct_prt_nvlm_ps
+                ))
+            eurollm_9b=(ImagePreproc:
+                basic=/lustre/fswork/projects/rech/qjm/ued79zb/towervision_ckpts/eurollm_9b_instruct_prt
+                nvlm=/lustre/fswork/projects/rech/qjm/ued79zb/towervision_ckpts/eurollm_9b_instruct_prt_nvlm
+            )
+    )
+    external_tensorboard=(
+        TextModel:
+            mistral=/lustre/fswork/projects/rech/qjm/ued79zb/towervision_tbs/mistral_7b_instruct_prt
+            tower=/lustre/fswork/projects/rech/qjm/ued79zb/towervision_tbs/tower_7b_instruct_prt
+            qwen2p5_7b=(ImagePreproc:
+                basic=/lustre/fswork/projects/rech/qjm/ued79zb/towervision_tbs/qwen2p5_7b_instruct_prt
+                nvlm=(
+                    PixelShuffle:
+                        false=/lustre/fswork/projects/rech/qjm/ued79zb/towervision_tbs/qwen2p5_7b_instruct_prt_nvlm
+                        true=/lustre/fswork/projects/rech/qjm/ued79zb/towervision_tbs/qwen2p5_7b_instruct_prt_nvlm_ps
+                ))
+            eurollm_9b=(ImagePreproc:
+                basic=/lustre/fswork/projects/rech/qjm/ued79zb/towervision_tbs/eurollm_9b_instruct_prt
+                nvlm=/lustre/fswork/projects/rech/qjm/ued79zb/towervision_tbs/eurollm_9b_instruct_prt_nvlm
+            )
+    )
+    pretrain_dataset=/linkhome/rech/genrce01/ued79zb/repos/Megatron-LM-pretrain/examples/multimodal/pixmo_caps.yaml
+    pretrain_iters=(PretrainIters: 2000 5000)
+    pretrain_bsz=256
+    pretrain_lr=(PretrainLR: 0p001=0.001 0p0005=0.0005)
+    pretrain_lr_warmup=0.03
+    pretrain_unfreeze_lm=(FullUnfreeze: false true)
+    pretrain_unfreeze_vit=false
+    #pretrain_save_interval=500
+    pretrain_save_interval=2000
+    pretrain_eval_interval=500
+
+    # fine-tuning arguments
+    sft_dataset=/linkhome/rech/genrce01/ued79zb/repos/Megatron-LM-pretrain/examples/multimodal/sft_dataset.yaml
+    finetune_model_dir=(
+        TextModel:
+            mistral=/lustre/fswork/projects/rech/qjm/ued79zb/towervision_ckpts/mistral_7b_instruct_sft
+            tower=/lustre/fswork/projects/rech/qjm/ued79zb/towervision_ckpts/tower_7b_instruct_sft
+            qwen2p5_7b=(ImagePreproc:
+                basic=/lustre/fswork/projects/rech/qjm/ued79zb/towervision_ckpts/qwen2p5_7b_instruct_sft
+                nvlm=(
+                    PixelShuffle:
+                        false=/lustre/fswork/projects/rech/qjm/ued79zb/towervision_ckpts/qwen2p5_7b_instruct_sft_nvlm
+                        true=/lustre/fswork/projects/rech/qjm/ued79zb/towervision_ckpts/qwen2p5_7b_instruct_sft_nvlm_ps
+                ))
+            eurollm_9b=(ImagePreproc:
+                basic=/lustre/fswork/projects/rech/qjm/ued79zb/towervision_ckpts/eurollm_9b_instruct_sft
+                nvlm=/lustre/fswork/projects/rech/qjm/ued79zb/towervision_ckpts/eurollm_9b_instruct_sft_nvlm
+            )
+    )
+    finetune_tensorboard=(
+        TextModel:
+            mistral=/lustre/fswork/projects/rech/qjm/ued79zb/towervision_tbs/mistral_7b_instruct_sft
+            tower=/lustre/fswork/projects/rech/qjm/ued79zb/towervision_tbs/tower_7b_instruct_sft
+            qwen2p5_7b=(ImagePreproc:
+                basic=/lustre/fswork/projects/rech/qjm/ued79zb/towervision_tbs/qwen2p5_7b_instruct_sft
+                nvlm=(
+                    PixelShuffle:
+                        false=/lustre/fswork/projects/rech/qjm/ued79zb/towervision_tbs/qwen2p5_7b_instruct_sft_nvlm
+                        true=/lustre/fswork/projects/rech/qjm/ued79zb/towervision_tbs/qwen2p5_7b_instruct_sft_nvlm_ps
+                ))
+            eurollm_9b=(ImagePreproc:
+                basic=/lustre/fswork/projects/rech/qjm/ued79zb/towervision_tbs/eurollm_9b_instruct_sft
+                nvlm=/lustre/fswork/projects/rech/qjm/ued79zb/towervision_tbs/eurollm_9b_instruct_sft_nvlm
+            )
+    )
+    finetune_iters=5000
+    finetune_bsz=(
+        TextModel:
+            mistral=128
+            tower=128
+            qwen2p5_7b=128
+            eurollm_9b=120
+    )
+    finetune_micro_bsz=(
+        TextModel:
+            mistral=8
+            tower=8
+            qwen2p5_7b=8
+            eurollm_9b=6
+    )
+    finetune_lr=1e-6
+    finetune_lr_warmup=0.01
+    #finetune_unfreeze_vit=(FullUnfreeze: false true)
+    finetune_unfreeze_vit=(SFTUnfreezeViT: false true)
+    #finetune_save_interval=1000
+    finetune_save_interval=2500
+    finetune_eval_interval=1000
+
+    num_workers=16
+
+    # eval arguments
+    coco_dir=/lustre/fswork/projects/rech/qjm/ued79zb/coco/
+    coco_gt_path=/lustre/fswork/projects/rech/qjm/ued79zb/coco/coco_karpathy_test.json
+    textvqa_dir=/lustre/fswork/projects/rech/qjm/ued79zb/text_vqa/train_images
+    textvqa_gt_path=/lustre/fswork/projects/rech/qjm/ued79zb/text_vqa/TextVQA_0.5.1_val.json
+    ai2d_dir=/lustre/fswork/projects/rech/qjm/ued79zb/ai2diagram/AI2D_TEST
+    ai2d_gt_path=/lustre/fswork/projects/rech/qjm/ued79zb/ai2diagram/test_vlmevalkit.jsonl
+    eval_bsz=1
+
+    # convert arguments
+    # upload_id="patricksf/mistral-7b-clip-prt"
+    prt_upload_id=(
+        TextModel:
+            mistral="Unbabel/mistral-7b-clip-prt-v1"
+            tower="Unbabel/tower-7b-clip-prt-v1"
+            qwen2p5_7b="Unbabel/qwen2p5-7b-clip-prt-v1"
+            eurollm_9b="Unbabel/eurollm-9b-clip-prt-v1"
+    )
+    sft_upload_id=(
+        TextModel:
+            mistral="Unbabel/mistral-7b-clip-sft-v1"
+            tower="Unbabel/tower-7b-clip-sft-v1"
+            qwen2p5_7b=(
+                ImagePreproc:
+                    basic="Unbabel/qwen2.5-7b-clip-sft-v1"
+                    nvlm="Unbabel/qwen2p5-7b-clip-hdr-sft-v4"
+            )
+            eurollm_9b="Unbabel/eurollm-9b-clip-sft-v1"
+    )
+    hf_model_type=(ImagePreproc:
+        basic="llava"
+        nvlm="nvlm_d"
+    )
+
+    # -- submitter arguments --
+    submitter=scslurm
+
+    prepare_C="h100"
+    #prepare_account="qjm@cpu"
+    prepare_account="qjm@h100"
+    prepare_time="1:00:00"
+    prepare_cpus=24
+    prepare_gres="gpu:1"
+    #prepare_partition="prepost"
+    #prepare_cpus=32
+    prepare_partition=none
+
+    pretrain_C="h100"
+    pretrain_account="qjm@h100"
+    pretrain_time="10:00:00"
+    pretrain_cpus=80
+    pretrain_gres="gpu:4"
+
+    finetune_C="h100"
+    finetune_account="qjm@h100"
+    finetune_time="10:00:00"
+    finetune_cpus=80
+    finetune_gres="gpu:4"
+
+    eval_C="h100"
+    eval_account="qjm@h100"
+    eval_time="2:00:00"
+    eval_cpus=80
+    eval_gres="gpu:4"
+
+    convert_account="qjm@cpu"
+    convert_time="1:00:00"
+    convert_cpus=4
+    convert_partition="prepost"
+}

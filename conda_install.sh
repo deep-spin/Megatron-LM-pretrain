@@ -36,6 +36,7 @@ conda activate ${ENV_NAME}
 pip install ninja
 
 # install our own copy of CUDA and set environment variables
+conda install -y openldap
 conda install -y -c "nvidia/label/cuda-12.4.0" cuda-toolkit cuda-nvcc cudnn
 
 export PATH=${CONDA_ENVS}/${ENV_NAME}/bin:$PATH

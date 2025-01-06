@@ -19,7 +19,7 @@ def add_arguments(parser):
 
     # TODO(jbarker): Need assertion to make sure *exactly* one of these is used
     parser.add_argument('--model-size', type=str, required=True,
-                        choices=['llama2-7B', 'llama2-13B', 'llama2-70B', 'llama2-7Bf', 'llama2-13Bf', 'llama2-70Bf', 'llama3-8B', 'llama3-70B', 'llama3-8Bf', 'llama3-70Bf', 'mistral-7B', 'mistral-7Bf', 'yi-34B', 'qwen2.5-7B', 'qwen2.5-72B', 'qwen2.5-7Bf', 'qwen2.5-72Bf'],
+                        choices=['llama2-7B', 'llama2-13B', 'llama2-70B', 'llama2-7Bf', 'llama2-13Bf', 'llama2-70Bf', 'llama3-8B', 'llama3-70B', 'llama3-8Bf', 'llama3-70Bf', 'mistral-7B', 'mistral-7Bf', 'yi-34B', 'qwen2.5-7B', 'qwen2.5-72B', 'qwen2.5-7Bf', 'qwen2.5-72Bf', 'eurollm-9B'],
                         help='Model size can be `llama2-7B`, `llama2-13B`, `llama2-70B`, `llama3-8B`, `llama3-70B`, `mistral-7B`, `qwen2.5-7B`, `qwen2.5-72B` (for pretrained models), '
                         'and `llama2-7Bf`, `llama2-13Bf`, `llama2-70Bf`, `llama3-8Bf`, `llama3-70bf`, `mistral-7Bf`, `qwen2.5-7Bf`, and `qwen2.5-72Bf` (for chat-finetuned models).')
     parser.add_argument('--checkpoint-type', type=str, required=True,
@@ -64,6 +64,7 @@ NUM_SHARDS = {
     "qwen2.5-7Bf": 1,
     "qwen2.5-72B": 8,
     "qwen2.5-72Bf": 8,
+    "eurollm-9B": 1,
 }
 
 
@@ -478,6 +479,8 @@ def _load_checkpoint(queue, args):
     elif "qwen2.5" in args.model_size:
         margs.tokenizer_type = "HuggingFaceTokenizer"
         margs.add_qkv_bias = True
+    elif "eurollm-9B" in args.model_size:
+        margs.tokenizer_type = "HuggingFaceTokenizer"
 
     # Arguments do sanity checks on the world size, but we don't care,
     # so trick it into thinking we are plenty of processes.

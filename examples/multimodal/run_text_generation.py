@@ -140,6 +140,9 @@ def generate_samples(model, config: EvaluationConfig, print_output):
         args.vision_model_type,
     )
 
+    tokenizer = get_tokenizer()
+    tile_tag_length = len(tokenizer.tokenize(f"<tile_1>"))
+
     num_img_embeddings_per_tile = get_num_image_embeddings(
         args.img_h,
         args.img_w,
@@ -149,6 +152,7 @@ def generate_samples(model, config: EvaluationConfig, print_output):
         1,
         args.pixel_shuffle,
         args.use_tile_tags,
+        tile_tag_length,
     )
 
     for idx, (imgs, num_tiles, sample_id, question, answers, metadata) in enumerate(dataloader):
@@ -354,7 +358,7 @@ class VLMForwardStep(ForwardStep):
         )
 
     def __call__(self, tokens, position_ids, attention_mask):
-        num_image_tokens = (tokens == self.model.image_token_index).sum().item()
+        num_image_tokens = (tokens == self.model.module.image_token_index).sum().item()
         num_tokens = tokens.size(1)
         recv_buffer_seq_length = None
         if num_image_tokens > 0:
@@ -461,6 +465,10 @@ def get_prompt_and_generated(prompt_and_generation, prompt_format):
         generated = generated.split("</s>")[0]
     elif prompt_format == "chatml":
         splitted = prompt_and_generation.split("<|im_start|> assistant\n")
+        if len(splitted) == 1:
+            # TODO: better handling of this case
+            splitted = prompt_and_generation.split("<|im_start|>assistant\n")
+            
         prompt = splitted[0]
         generated = splitted[1]
         generated = generated.split("<|im_end|>")[0]

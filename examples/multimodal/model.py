@@ -13,7 +13,7 @@ from megatron.training.arguments import core_transformer_config_from_args
 
 
 def model_provider(
-    pre_process=True, post_process=True, add_encoder=True, add_decoder=True, parallel_output=True
+    pre_process=True, post_process=True, add_encoder=True, add_decoder=True, parallel_output=True, args=None
 ) -> LLaVAModel:
     """Builds the model.
 
@@ -29,7 +29,7 @@ def model_provider(
     Returns:
         model: A multimodal model.
     """
-    args = get_args()
+    args = get_args() if args is None else args
     assert args.ckpt_format == 'torch', "Only ckpt-format torch is supported for VLM training currently."
     assert args.encoder_pipeline_model_parallel_size <= 1, "LLaVA does not support pp>1 for encoder on it's own pipeline rank"
 
@@ -37,6 +37,8 @@ def model_provider(
 
     print_rank_0('building a multimodal model ...')
 
+    tokenizer = get_tokenizer()
+    tile_tag_length = len(tokenizer.tokenize(f"<tile_1>"))
     num_image_embeddings = get_num_image_embeddings(
         args.img_h,
         args.img_w,
@@ -46,10 +48,11 @@ def model_provider(
         1,
         args.pixel_shuffle,
         args.use_tile_tags,
+        tile_tag_length,
     )
     old_seq_length = args.seq_length
     args.seq_length = args.encoder_seq_length = num_image_embeddings
-    if torch.distributed.get_rank() == 0 and old_seq_length != args.seq_length:
+    if (not torch.distributed.is_initialized() or torch.distributed.get_rank() == 0) and old_seq_length != args.seq_length:
         warnings.warn(
             f"Changed seq_length and encoder_seq_length (vision model sequence length) from {old_seq_length} to num_image_tokens ({num_image_embeddings})"
         )
@@ -68,7 +71,7 @@ def model_provider(
             f"Expanded max_position_embeddings to {args.max_position_embeddings} to accommodate the maximum language model sequence length"
         )
 
-    base_config = core_transformer_config_from_args(get_args())
+    base_config = core_transformer_config_from_args(args)
     base_config.language_model_type = args.language_model_type
     base_config.vision_model_type = args.vision_model_type
     base_config.calculate_per_token_loss = True
@@ -136,7 +139,6 @@ def model_provider(
     else:
         vision_projection_layer_spec = get_mlp_module_spec(use_te=use_te).submodules
 
-    tokenizer = get_tokenizer()
     image_token_index = tokenizer.convert_tokens_to_ids(IMAGE_TOKEN)
 
     tile_tags = _get_tile_tags(args, tokenizer)
@@ -168,6 +170,7 @@ def model_provider(
         image_token_index=image_token_index,
         pixel_shuffle=args.pixel_shuffle,
         tile_tags=tile_tags,
+        tile_tag_length=tile_tag_length,
     )
 
     model.freeze(
@@ -188,7 +191,9 @@ def _get_tile_tags(args, tokenizer):
     thumbnail_tag_text = "<tile_global_thumbnail>"
     if args.tokenizer_prompt_format == "nvlm-yi-34b":
         thumbnail_tag_text = "<tile_global>"
-
+    if args.tokenizer_model == "utter-project/EuroLLM-9B-Instruct":
+        thumbnail_tag_text = "<tile_global>"
+    
     assert args.max_num_tiles <= 6, "Up to 6 tile tags used"
     tile_tags_text = [f"<tile_{i}>" for i in range(1, args.max_num_tiles + 1)] + [thumbnail_tag_text]
 

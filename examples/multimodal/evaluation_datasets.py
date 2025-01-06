@@ -124,7 +124,15 @@ class CaptioningDataset(torch.utils.data.Dataset):
         use_thumbnail,
         vision_model_type,
     ):
-        image_files = sorted(glob.glob(input_image_path + "/*"))
+        gts = json.load(open(gt_path))
+        answers = defaultdict(list)
+        image_files = list()
+
+        for gt in gts:
+            image_files.append(input_image_path + "/" + gt["image"])
+            answers[gt["image"]] = gt['caption']
+
+        image_files = sorted(image_files)
 
         # Optionally, process only a subset of the input files.
         if num_partitions > 0:
@@ -132,11 +140,6 @@ class CaptioningDataset(torch.utils.data.Dataset):
                 len(image_files), num_samples_per_partition, num_partitions, partition_id
             )
             image_files = image_files[lb:ub]
-
-        gts = json.load(open(gt_path))
-        answers = defaultdict(list)
-        for gt in gts["annotations"]:
-            answers[gt["image_id"]].append(gt['caption'])
 
         self._image_files = image_files
         self._answers = answers
@@ -231,7 +234,8 @@ class MMMUDataset(torch.utils.data.Dataset):
             dataset = dataset[lb:ub]
 
         # Using the LLaVA config from the MMMU repo.
-        config = load_yaml("examples/multimodal/MMMU/mmmu/configs/llava1.5.yaml")
+        # TODO: remove the hardcoded path.
+        config = load_yaml("/linkhome/rech/genrce01/ued79zb/repos/Megatron-LM-pretrain/examples/multimodal/MMMU/mmmu/configs/llava1.5.yaml")
         for k, v in config.items():
             if isinstance(v, list):
                 assert len(v) == 1, "only one value supported."
@@ -658,7 +662,9 @@ class AI2DDataset(torch.utils.data.Dataset):
         return len(self._gt)
 
     def __getitem__(self, idx):
-        img_path = os.path.join(self._input_image_path, self._gt[idx]['image'])
+        # HACK: img_path assumes a certain structure, we want more flexibility
+        suffix_path = self._gt[idx]['image'].replace("data/ai2diagram/AI2D_TEST/", "")
+        img_path = os.path.join(self._input_image_path, suffix_path)
         if self._no_mask:
             img_path.replace("AI2D_TEST", "AI2D_TEST_NO_MASK_IMAGES")
 

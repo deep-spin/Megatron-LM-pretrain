@@ -1,0 +1,145 @@
+global {
+    ducttape_output=/lustre/fswork/projects/rech/qjm/ued79zb/towervision_outputs_pixcaps_pangea
+    repo=/linkhome/rech/genrce01/ued79zb/repos/Megatron-LM-pretrain
+
+    # multimodal model parameters
+    # (base lm, tp, etc...)
+    clip_original_dir=/lustre/fswork/projects/rech/qjm/ued79zb/clip_model_og/
+    model_name=(
+        TextModel:
+            qwen2p5_7b="Qwen/Qwen2.5-7B-Instruct"
+            eurollm_9b="utter-project/EuroLLM-9B-Instruct"
+    )
+    model_type=(
+        TextModel:
+            qwen2p5_7b="qwen2.5-7B"
+            eurollm_9b="eurollm-9B"
+    )
+    prompt_format=(
+        TextModel:
+            qwen2p5_7b="qwen2p0"
+            eurollm_9b="chatml"
+    )
+    image_preproc=nvlm
+    pixel_shuffle=true
+    tp=4
+    pp=1
+
+    # pre-training arguments
+    external_model_dir=(
+        TextModel:
+            qwen2p5_7b=/lustre/fswork/projects/rech/qjm/ued79zb/towervision_ckpts/qwen2p5_7b_instruct_prt
+            eurollm_9b=/lustre/fswork/projects/rech/qjm/ued79zb/towervision_ckpts/eurollm_9b_instruct_prt
+    )
+    external_tensorboard=(
+        TextModel:
+            qwen2p5_7b=/lustre/fswork/projects/rech/qjm/ued79zb/towervision_tbs/qwen2p5_7b_instruct_prt
+            eurollm_9b=/lustre/fswork/projects/rech/qjm/ued79zb/towervision_tbs/eurollm_9b_instruct_prt
+    )
+    pretrain_dataset=/linkhome/rech/genrce01/ued79zb/repos/Megatron-LM-pretrain/examples/multimodal/pixmo_caps.yaml
+    pretrain_iters=5000
+    pretrain_bsz=256
+    pretrain_lr=0.001
+    pretrain_lr_warmup=0.03
+    pretrain_unfreeze_lm=false
+    pretrain_unfreeze_vit=false
+    pretrain_save_interval=5000
+    pretrain_eval_interval=1000
+
+    # fine-tuning arguments
+    sft_dataset=/linkhome/rech/genrce01/ued79zb/repos/Megatron-LM-pretrain/examples/multimodal/pangea_instruct.yaml
+    finetune_model_dir=(
+        TextModel:
+            qwen2p5_7b=/lustre/fswork/projects/rech/qjm/ued79zb/towervision_ckpts/qwen2p5_7b_instruct_sft
+            eurollm_9b=/lustre/fswork/projects/rech/qjm/ued79zb/towervision_ckpts/eurollm_9b_instruct_sft
+    )
+    finetune_tensorboard=(
+        TextModel:
+            qwen2p5_7b=/lustre/fswork/projects/rech/qjm/ued79zb/towervision_tbs/qwen2p5_7b_instruct_sft
+            eurollm_9b=/lustre/fswork/projects/rech/qjm/ued79zb/towervision_tbs/eurollm_9b_instruct_sft
+    )
+    finetune_iters=40000
+    finetune_bsz=(
+        TextModel:
+            qwen2p5_7b=120
+            eurollm_9b=128
+    )
+    finetune_micro_bsz=(
+        TextModel:
+            qwen2p5_7b=6
+            eurollm_9b=4
+    )
+    finetune_lr=1e-6
+    finetune_lr_warmup=0.01
+    finetune_unfreeze_vit=false
+    finetune_save_interval=10000
+    finetune_eval_interval=1000
+    finetune_nnodes=1
+    finetune_gpus=4
+    master_addr=localhost
+    master_port=29800
+
+    num_workers=16
+
+    # eval arguments
+    coco_dir=/lustre/fswork/projects/rech/qjm/ued79zb/coco/
+    coco_gt_path=/lustre/fswork/projects/rech/qjm/ued79zb/coco/coco_karpathy_test.json
+    textvqa_dir=/lustre/fswork/projects/rech/qjm/ued79zb/text_vqa/train_images
+    textvqa_gt_path=/lustre/fswork/projects/rech/qjm/ued79zb/text_vqa/TextVQA_0.5.1_val.json
+    ai2d_dir=/lustre/fswork/projects/rech/qjm/ued79zb/ai2diagram/AI2D_TEST
+    ai2d_gt_path=/lustre/fswork/projects/rech/qjm/ued79zb/ai2diagram/test_vlmevalkit.jsonl
+    eval_bsz=1
+
+    # convert arguments
+    # upload_id="patricksf/mistral-7b-clip-prt"
+    prt_upload_id=(
+        TextModel:
+            qwen2p5_7b="Unbabel/qwen2p5-7b-hdr-prt-pixcaps"
+            eurollm_9b="Unbabel/eurollm-9b-hdr-prt-pixcaps"
+    )
+    sft_upload_id=(
+        TextModel:
+            qwen2p5_7b="Unbabel/qwen2p5-7b-hdr-sft-pangea"
+            eurollm_9b="Unbabel/eurollm-9b-hdr-sft-pangea"
+    )
+    hf_model_type=nvlm_d
+
+    # -- submitter arguments --
+    submitter=scslurm
+
+    prepare_C="h100"
+    #prepare_account="qjm@cpu"
+    prepare_account="qjm@h100"
+    prepare_time="1:00:00"
+    #prepare_gres="none"
+    prepare_gres="gpu:1"
+    prepare_partition=none
+    prepare_cpus=24
+    #prepare_partition="prepost"
+    #prepare_cpus=32
+
+    pretrain_C="h100"
+    pretrain_account="qjm@h100"
+    pretrain_time="10:00:00"
+    pretrain_cpus=80
+    pretrain_gres="gpu:4"
+
+    finetune_C="h100"
+    finetune_account="qjm@h100"
+    finetune_time="99:00:00"
+    finetune_cpus=80
+    finetune_nodes=1
+    finetune_gres="gpu:4"
+    finetune_qos=qos_gpu_h100-t4
+
+    eval_C="h100"
+    eval_account="qjm@h100"
+    eval_time="2:00:00"
+    eval_cpus=80
+    eval_gres="gpu:4"
+
+    convert_account="qjm@cpu"
+    convert_time="1:00:00"
+    convert_cpus=4
+    convert_partition="prepost"
+}

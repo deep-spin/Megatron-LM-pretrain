@@ -4,12 +4,12 @@ splits:
   train:
     datasets:
       - weight: 1.
-        path: <path_to_sft_dataset_in_energon_format>
+        path: /lustre/fswork/projects/rech/qjm/ued79zb/sft-wds
         subflavors:
           augmentation: false
   val:
     datasets:
       - weight: 1.
-        path: <path_to_sft_dataset_in_energon_format>
+        path: /lustre/fswork/projects/rech/qjm/ued79zb/sft-wds
         subflavors:
           augmentation: false

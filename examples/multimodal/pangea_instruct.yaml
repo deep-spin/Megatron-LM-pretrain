@@ -1,0 +1,15 @@
+__module__: megatron.energon
+__class__: Metadataset
+splits:
+  train:
+    datasets:
+      - weight: 1.
+        path: /lustre/fswork/projects/rech/qjm/ued79zb/visionblocks_datasets/Unbabel-VisionBlocks-pangea-instruct/
+        subflavors:
+          augmentation: false
+  val:
+    datasets:
+      - weight: 1.
+        path: /lustre/fswork/projects/rech/qjm/ued79zb/visionblocks_datasets/Unbabel-VisionBlocks-pangea-instruct/
+        subflavors:
+          augmentation: false
