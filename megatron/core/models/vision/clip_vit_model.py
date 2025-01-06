@@ -195,6 +195,7 @@ def get_num_image_embeddings(
     class_token_len,
     pixel_shuffle=False,
     use_tile_tags=False,
+    tile_tag_length=5,
 ):
     """Get the number of image embeddings per image tile."""
     if vision_model_type == "siglip":
@@ -213,7 +214,6 @@ def get_num_image_embeddings(
         num_image_embeddings_per_tile = int(num_image_embeddings_per_tile * (0.5**2))
 
     if use_tile_tags:
-        # The length of tile tags tokenized. Currently, the same across tokenizers used.
-        num_image_embeddings_per_tile += 5
+        num_image_embeddings_per_tile += tile_tag_length
 
     return num_image_embeddings_per_tile

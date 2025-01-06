@@ -37,6 +37,8 @@ def model_provider(
 
     print_rank_0('building a multimodal model ...')
 
+    tokenizer = get_tokenizer()
+    tile_tag_length = len(tokenizer.tokenize(f"<tile_1>"))
     num_image_embeddings = get_num_image_embeddings(
         args.img_h,
         args.img_w,
@@ -46,6 +48,7 @@ def model_provider(
         1,
         args.pixel_shuffle,
         args.use_tile_tags,
+        tile_tag_length,
     )
     old_seq_length = args.seq_length
     args.seq_length = args.encoder_seq_length = num_image_embeddings
@@ -136,7 +139,6 @@ def model_provider(
     else:
         vision_projection_layer_spec = get_mlp_module_spec(use_te=use_te).submodules
 
-    tokenizer = get_tokenizer()
     image_token_index = tokenizer.convert_tokens_to_ids(IMAGE_TOKEN)
 
     tile_tags = _get_tile_tags(args, tokenizer)
@@ -168,6 +170,7 @@ def model_provider(
         image_token_index=image_token_index,
         pixel_shuffle=args.pixel_shuffle,
         tile_tags=tile_tags,
+        tile_tag_length=tile_tag_length,
     )
 
     model.freeze(
@@ -188,7 +191,9 @@ def _get_tile_tags(args, tokenizer):
     thumbnail_tag_text = "<tile_global_thumbnail>"
     if args.tokenizer_prompt_format == "nvlm-yi-34b":
         thumbnail_tag_text = "<tile_global>"
-
+    if args.tokenizer_model == "utter-project/EuroLLM-9B-Instruct":
+        thumbnail_tag_text = "<tile_global>"
+    
     assert args.max_num_tiles <= 6, "Up to 6 tile tags used"
     tile_tags_text = [f"<tile_{i}>" for i in range(1, args.max_num_tiles + 1)] + [thumbnail_tag_text]
 

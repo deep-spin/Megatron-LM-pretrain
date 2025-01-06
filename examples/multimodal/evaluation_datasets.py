@@ -662,7 +662,9 @@ class AI2DDataset(torch.utils.data.Dataset):
         return len(self._gt)
 
     def __getitem__(self, idx):
-        img_path = os.path.join(self._input_image_path, self._gt[idx]['image'])
+        # HACK: img_path assumes a certain structure, we want more flexibility
+        suffix_path = self._gt[idx]['image'].replace("data/ai2diagram/AI2D_TEST/", "")
+        img_path = os.path.join(self._input_image_path, suffix_path)
         if self._no_mask:
             img_path.replace("AI2D_TEST", "AI2D_TEST_NO_MASK_IMAGES")
 

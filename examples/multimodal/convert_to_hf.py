@@ -17,8 +17,9 @@ from transformers import (
 )
 from transformers import LlavaConfig
 
-from model import model_provider
+from huggingface_hub import HfApi
 
+from model import model_provider
 
 
 def parse_args():
@@ -28,7 +29,8 @@ def parse_args():
     parser.add_argument("--original-text-model-id", required=True)
     parser.add_argument("--original-vision-model-id", required=True)
     parser.add_argument("--source-tp-size", type=int, default=4)
-    parser.add_argument("--target-params-dtype", type=str, default="float16")
+    parser.add_argument("--target-params-dtype", type=str, default="bfloat16")
+    parser.add_argument("--hf-model-type", type=str, default="llava", choices=["llava", "nvlm_d"])
     parser.add_argument("--upload-to-hub", default=None)
     return parser.parse_args()
 
@@ -36,6 +38,7 @@ def parse_args():
 def main():
     args = parse_args()
     convert_mcore2hf(args)
+
 
 def get_checkpoint_sub_dir_name(*, tp_rank):
     """Get the checkpoint subdirectory name based on parallel ranks."""
@@ -47,21 +50,21 @@ def gather_state_dict(mcore_sds, *, tp_size):
     """
     Gather all tensor parallel shards into a single state dict.
     Only concatenates parameters that are actually sharded.
-    
+
     Args:
         mcore_sds: List of state dicts [tp_rank]
         tp_size: Number of tensor parallel shards
-    
+
     Returns:
         Consolidated state dict with all shards merged
     """
     consolidated_sd = {}
-    
+
     # Get all unique keys from all shards
     all_keys = set()
     for tp_rank in range(tp_size):
         all_keys.update(mcore_sds[tp_rank].keys())
-    
+
     # Define patterns for sharded parameters
     sharded_output_dim_patterns = [
         "self_attention.linear_qkv.weight",
@@ -71,28 +74,28 @@ def gather_state_dict(mcore_sds, *, tp_size):
         "encoder.linear_fc1.weight",
         "encoder.linear_fc1.bias",
         "word_embeddings.weight",
-        "output_layer.weight"
-    ] 
-    
+        "output_layer.weight",
+    ]
+
     sharded_input_dim_patterns = [
         "self_attention.linear_proj.weight",
         "mlp.linear_fc2.weight",
         "encoder.linear_fc2.weight",
     ]
-    
+
     # For each key, try to gather the shards
     for key in all_keys:
         # Skip args and other non-tensor keys
         if not isinstance(mcore_sds[0].get(key, None), torch.Tensor):
             consolidated_sd[key] = mcore_sds[0][key]
             continue
-            
+
         # Collect shards if they exist
         shards = []
         for tp_rank in range(tp_size):
             if key in mcore_sds[tp_rank]:
                 shards.append(mcore_sds[tp_rank][key])
-        
+
         # If only one shard exists, use it directly
         if len(shards) == 1:
             consolidated_sd[key] = shards[0]
@@ -114,16 +117,15 @@ def gather_state_dict(mcore_sds, *, tp_size):
                     gate_shard = shard[:shard_size]
                     up_shard = shard[shard_size:]
                     shards.append((gate_shard, up_shard))
-            
+
             # Concatenate gate and up parts separately
             gate_shards = [s[0] for s in shards]
             up_shards = [s[1] for s in shards]
-            
+
             # Then concatenate them in the correct order
-            consolidated_sd[key] = torch.cat([
-                torch.cat(gate_shards, dim=0),
-                torch.cat(up_shards, dim=0)
-            ], dim=0)
+            consolidated_sd[key] = torch.cat(
+                [torch.cat(gate_shards, dim=0), torch.cat(up_shards, dim=0)], dim=0
+            )
         elif is_sharded_output:
             consolidated_sd[key] = torch.cat(shards, dim=0)
         elif is_sharded_input:
@@ -131,7 +133,7 @@ def gather_state_dict(mcore_sds, *, tp_size):
         else:
             # For non-sharded parameters, just take the first shard
             consolidated_sd[key] = shards[0]
-    
+
     return consolidated_sd
 
 
@@ -156,7 +158,7 @@ def convert_mcore2hf(args):
     mcore_args = []
     for tp_rank in range(tp_size):
         print(f"  > Loading tp_rank={tp_rank}")
-        sub_dir_name = get_checkpoint_sub_dir_name(tp_rank=tp_rank,)
+        sub_dir_name = get_checkpoint_sub_dir_name(tp_rank=tp_rank)
         checkpoint_path = f"{iter_dir}/{sub_dir_name}/model_optim_rng.pt"
         checkpoint = torch.load(checkpoint_path, map_location='cpu')
         mcore_args.append(checkpoint['args'])
@@ -168,19 +170,22 @@ def convert_mcore2hf(args):
     margs = mcore_args[0]
     print(f"> Loaded args from checkpoint: {margs}")
 
-    #import pdb; pdb.set_trace()
+    # import pdb; pdb.set_trace()
 
     # Consolidate sharded state dict
     print(f"> Consolidating sharded checkpoints")
     checkpoint = gather_state_dict(mcore_sds, tp_size=tp_size)
 
-
     # import pdb; pdb.set_trace()
     # create the HF config
-    hf_config = create_hf_config(args.original_text_model_id, args.original_vision_model_id, margs)
+    hf_config = create_hf_config(
+        args.original_text_model_id, args.original_vision_model_id, margs, args.hf_model_type
+    )
 
     # create the tokenizer and processor
-    processor = create_hf_processor(hf_config, args.original_text_model_id, args.original_vision_model_id)
+    processor = create_hf_processor(
+        hf_config, args.original_text_model_id, args.original_vision_model_id, args.hf_model_type
+    )
     processor.save_pretrained(args.hf_save_dir)
 
     # Convert the state dict
@@ -203,18 +208,70 @@ def convert_mcore2hf(args):
 
     # create the HF model
     print(f"> Loading HF model and converted weights")
-    hf_model = LlavaForConditionalGeneration(config=hf_config)
+    if args.hf_model_type == "llava":
+        hf_model = LlavaForConditionalGeneration(config=hf_config)
+    elif args.hf_model_type == "nvlm_d":
+        from hf_modeling_files.modeling_nvlm_d import NVLM_D_Model
+
+        hf_model = NVLM_D_Model(config=hf_config)
+    else:
+        raise ValueError(f"Unsupported model type: {args.hf_model_type}")
+
+    # cast the model to the target dtype
+    hf_model.to(dtype=dtype)
+
+    # TODO: for now, if megatron already expanded the embeddings,
+    # we re-shorten them to the original vocab size
+    # and then extend them again after loading the weights
+    if (
+        args.hf_model_type == "llava"
+        and hf_state_dict["language_model.model.embed_tokens.weight"].size(0)
+        != hf_config.text_config.vocab_size
+    ):
+        # shorten the embeddings and output layer
+        hf_state_dict["language_model.model.embed_tokens.weight"] = hf_state_dict[
+            "language_model.model.embed_tokens.weight"
+        ][: hf_config.text_config.vocab_size]
+        hf_state_dict["language_model.lm_head.weight"] = hf_state_dict[
+            "language_model.lm_head.weight"
+        ][: hf_config.text_config.vocab_size]
+
     hf_model.load_state_dict(hf_state_dict, strict=True)
 
     # extend the embeddings
-    extend_embeddings(hf_model, hf_config)
+    # TODO: double check why only llava model has this
+    if args.hf_model_type == "llava":
+        extend_embeddings(hf_model, hf_config)
 
     print(f"> Saving HF model to {args.hf_save_dir}")
     hf_model.save_pretrained(args.hf_save_dir)
     if args.upload_to_hub is not None:
-        hf_model.push_to_hub(args.upload_to_hub)
+        # TODO: still need to add the auto-map to the config files
+        # push everything to the hub
+        hf_model.push_to_hub(args.upload_to_hub, private=True)
+        processor.push_to_hub(args.upload_to_hub)
+        if args.hf_model_type == "nvlm_d":
+            # push the hf_modeling_files folder to the hub
+            pi = HfApi()
+            # get directory of the current script
+            script_dir = os.path.dirname(os.path.abspath(__file__))
+            modeling_files_dir = f"{script_dir}/hf_modeling_files"
+            for file in os.listdir(modeling_files_dir):
+                # only send .py files
+                if not file.endswith(".py"):
+                    continue
 
-def create_hf_config(original_text_model_id, original_vision_model_id, margs):
+                pi.upload_file(
+                    path_or_fileobj=f"{modeling_files_dir}/{file}",
+                    repo_id=args.upload_to_hub,
+                    path_in_repo=file,
+                    repo_type="model",
+                )
+
+
+def create_hf_config(
+    original_text_model_id, original_vision_model_id, margs, hf_model_type="llava"
+):
     """Create HF config from Megatron checkpoint"""
     # Extract model args from checkpoint
     assert margs.transformer_impl == "transformer_engine"
@@ -238,16 +295,37 @@ def create_hf_config(original_text_model_id, original_vision_model_id, margs):
     text_config = AutoConfig.from_pretrained(original_text_model_id)
 
     # Create final LLaVA config combining both
-    hf_config = LlavaConfig(
-        vision_config=vision_config,
-        text_config=text_config,
-        vision_feature_layer=-1, # megatron uses the last layer
-        # Add any other LLaVA specific configs here
-    )
+    if hf_model_type == "llava":
+        hf_config = LlavaConfig(
+            vision_config=vision_config,
+            text_config=text_config,
+            vision_feature_layer=-1,  # megatron uses the last layer
+            # Add any other LLaVA specific configs here
+        )
+    elif hf_model_type == "nvlm_d":
+        from hf_modeling_files.configuration_nvlm_d import NVLM_D_Config
+
+        hf_config = NVLM_D_Config(
+            vision_config=vision_config,
+            text_config=text_config,
+            # Add any other NVLM-D specific configs here
+        )
+    else:
+        raise ValueError(f"Unsupported model type: {hf_model_type}")
+
     return hf_config
 
 
-def create_hf_processor(hf_config, text_model_id, vision_model_id):
+def create_hf_processor(hf_config, text_model_id, vision_model_id, hf_model_type="llava"):
+    if hf_model_type == "nvlm_d":
+        from hf_modeling_files.image_processing_nvlm_d import NVLM_D_ImageProcessor
+        from hf_modeling_files.processing_nvlm_d import NVLM_D_Processor
+
+        image_processor = NVLM_D_ImageProcessor()
+        tokenizer = AutoTokenizer.from_pretrained(text_model_id)
+        processor = NVLM_D_Processor(image_processor=image_processor, tokenizer=tokenizer)
+        return processor
+
     tokenizer = AutoTokenizer.from_pretrained(text_model_id)
     tokenizer.add_tokens(AddedToken("<image>", special=True, normalized=False), special_tokens=True)
     tokenizer.add_special_tokens({"pad_token": "<pad>"})
@@ -256,16 +334,19 @@ def create_hf_processor(hf_config, text_model_id, vision_model_id):
 
     try:
         # WARNING: this was used for custom version transformer
-        # that implemented that llave image processing pipeline 
+        # that implemented that llave image processing pipeline
         # see https://github.com/huggingface/transformers/pull/33191
         # for a status on it being merged to the official repo
         from transformers.models.llava.image_processing_llava import LlavaImageProcessor
+
         image_processor = LlavaImageProcessor()
     except ImportError:
         print("> WARNING: could not import LlavaImageProcessor, using AutoImageProcessor instead")
-        print("> This might lead to performance degradation due to slightly different image pre-processing")
+        print(
+            "> This might lead to performance degradation due to slightly different image pre-processing"
+        )
         image_processor = AutoImageProcessor.from_pretrained(vision_model_id)
-    
+
     processor = LlavaProcessor(tokenizer=tokenizer, image_processor=image_processor)
     return processor
 
@@ -414,12 +495,6 @@ def convert_mcore2hf_language_model(mcore_sd, margs):
 
         # Attention weights
         qkv_weight = mcore_sd[f"{mcore_prefix}.self_attention.linear_qkv.weight"]
-        # Ensure the shape is divisible by 3
-
-        # load transformer llava and do the same
-        # from transformers import LlavaForConditionalGeneration
-        # llava_model = LlavaForConditionalGeneration.from_pretrained("llava-hf/llava-1.5-7b-hf")
-
         hidden_size = qkv_weight.shape[1]
         num_kv_heads = margs.num_query_groups
         num_heads = margs.num_attention_heads
@@ -460,6 +535,31 @@ def convert_mcore2hf_language_model(mcore_sd, margs):
             }
         )
 
+        # some models have bias in the attention
+        if f"{mcore_prefix}.self_attention.linear_qkv.bias" in mcore_sd:
+            # split the bias into q, k, v, similar to the weights
+            qkv_bias = mcore_sd[f"{mcore_prefix}.self_attention.linear_qkv.bias"]
+            qkv_bias = qkv_bias.reshape(num_kv_heads, (num_queries_per_group + 2) * head_dim)
+
+            # Split into q, k, v components
+            q_bias = qkv_bias[:, : num_queries_per_group * head_dim]
+            k_bias = qkv_bias[
+                :, num_queries_per_group * head_dim : (num_queries_per_group + 1) * head_dim
+            ]
+            v_bias = qkv_bias[:, (num_queries_per_group + 1) * head_dim :]
+
+            # Reshape to match HuggingFace format
+            q_bias = q_bias.reshape(-1)  # Flatten to 1D
+            k_bias = k_bias.reshape(-1)
+            v_bias = v_bias.reshape(-1)
+            state_dict.update(
+                {
+                    f"{hf_prefix}.self_attn.q_proj.bias": q_bias,
+                    f"{hf_prefix}.self_attn.k_proj.bias": k_bias,
+                    f"{hf_prefix}.self_attn.v_proj.bias": v_bias,
+                }
+            )
+
         # MLP weights
         # Note: In LLaMA, gate_proj and up_proj together form what was fc1 in the original architecture
         fc1_weight = mcore_sd[f"{mcore_prefix}.mlp.linear_fc1.weight"]
@@ -497,11 +597,12 @@ def convert_mcore2hf_vision_projection(mcore_sd, margs):
 
     return state_dict
 
+
 def extend_embeddings(hf_model, hf_config):
     # Initialize new embeddings for additional tokens
     # We use the average of the pre-expansion embeddings as the mean
     # and a small covariance matrix to ensure the new embeddings are close to the old ones
-    # adapted from 
+    # adapted from
     # https://github.com/huggingface/transformers/blob/bf42c3bd4b088fd9df1086e63d47a8e33048e5e1/src/transformers/models/llava/convert_llava_weights_to_hf.py#L100
     # TODO: it seems this might not be needed anymore in the new versions of HF??
     # double check
@@ -537,7 +638,6 @@ def extend_embeddings(hf_model, hf_config):
         ),
         dim=0,
     )
-
 
 
 if __name__ == "__main__":

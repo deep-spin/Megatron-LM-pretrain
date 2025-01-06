@@ -99,6 +99,7 @@ class LLaVAModel(MegatronModule):
         image_token_index: int = DEFAULT_IMAGE_TOKEN_INDEX,
         pixel_shuffle: bool = False,
         tile_tags: Optional[list] = None,
+        tile_tag_length: int = 5,
     ) -> None:
         super().__init__(config=language_transformer_config)
 
@@ -210,6 +211,7 @@ class LLaVAModel(MegatronModule):
             class_token_len,
             pixel_shuffle,
             tile_tags is not None,  # Tile tags enabled/disabled.
+            tile_tag_length,
         )
 
         self.image_token_index = image_token_index
@@ -520,8 +522,9 @@ class LLaVAModel(MegatronModule):
 
         return final_embedding, final_labels, final_loss_mask, attention_mask
 
-    def _apply_tile_tagging(self, image_embeddings, num_image_tiles):
-        """Apply tile tagging.
+    def _apply_tile_tagging_1bsz(self, image_embeddings, num_image_tiles):
+        """WARNING: This is deprecated, in favour of the new batched tile tagging. Kept for reference.
+        Apply tile tagging.
 
         The image embeddings of multiple tiles are prepended with tile tags such as <tile_1>.
         This implements the method used in NVLM https://arxiv.org/pdf/2409.11402.
@@ -536,7 +539,7 @@ class LLaVAModel(MegatronModule):
         """
         assert (
             num_image_tiles.shape[0] == 1 and len(num_image_tiles) == 1
-        ), "multiple input images are not supported yet."
+        ), "multiple input images are not supported yet, got {}".format(num_image_tiles)
 
         num_tiles = num_image_tiles[0].item()
         tile_tags = self._tile_tags[: num_tiles - 1] + [self._tile_tags[-1]]
@@ -555,6 +558,44 @@ class LLaVAModel(MegatronModule):
         image_embeddings = torch.cat([tile_tag_embeds, image_embeddings])
 
         return image_embeddings  # [tile_seq_len + img_seq_len, num_tiles, h_language]
+
+
+    def _apply_tile_tagging(self, image_embeddings, num_image_tiles):
+        """Apply tile tagging for batched processing.
+
+        Args:
+            image_embeddings (torch.Tensor): [img_seq_len, total_num_tiles, h_language]
+                where total_num_tiles is the sum of tiles across all images
+            num_image_tiles (torch.Tensor): Number of tiles for each input image [num_images]
+
+        Returns:
+            torch.Tensor: Tile tags prepended to image embeddings.
+                [tile_seq_len + img_seq_len, total_num_tiles, h_language]
+        """
+        # Split embeddings by number of tiles per image
+        tile_splits = torch.split(image_embeddings, num_image_tiles.tolist(), dim=1)
+
+        processed_embeddings = []
+        for tiles, num_tiles in zip(tile_splits, num_image_tiles):
+            # Get the tile tags for current image
+            tile_tags = self._tile_tags[: num_tiles - 1] + [self._tile_tags[-1]]
+
+            # [num_tiles, tile_seq_len]
+            tile_tag_input_ids = torch.tensor(
+                tile_tags, dtype=torch.int64, device=num_image_tiles.device
+            )
+
+            # [tile_seq_len, num_tiles, h_language]
+            tile_tag_embeds = self.language_model.embedding(tile_tag_input_ids, position_ids=None)
+
+            # Concatenate tile tags with image embeddings
+            # tiles shape: [img_seq_len, num_tiles, h_language]
+            # tile_tag_embeds shape: [tile_seq_len, num_tiles, h_language]
+            processed = torch.cat([tile_tag_embeds, tiles], dim=0)
+            processed_embeddings.append(processed)
+
+        # Concatenate all processed embeddings along the tiles dimension
+        return torch.cat(processed_embeddings, dim=1)
 
     def forward(
         self,

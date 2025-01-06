@@ -87,6 +87,33 @@ def get_language_model_config(config):
         config.apply_rope_fusion = False
         config.attention_softmax_in_fp32 = True
         config.ffn_hidden_size = 29568
+    elif config.language_model_type == "qwen2.5_7b":
+        config.activation_func = torch.nn.functional.silu
+        config.add_bias_linear = False
+        config.add_qkv_bias = True
+        config.bias_activation_fusion = False
+        config.gated_linear_unit = True
+        config.apply_query_key_layer_scaling = False
+        config.layernorm_zero_centered_gamma = (
+            False  # Zero centered gamma not supported for RMSNorm
+        )
+        config.bias_dropout_fusion = False
+        config.apply_rope_fusion = False
+        config.attention_softmax_in_fp32 = True
+        config.ffn_hidden_size = 18944
+    elif config.language_model_type == "eurollm_9b":
+        config.activation_func = torch.nn.functional.silu
+        config.add_bias_linear = False
+        config.bias_activation_fusion = False
+        config.gated_linear_unit = True
+        config.apply_query_key_layer_scaling = False
+        config.layernorm_zero_centered_gamma = (
+            False  # Zero centered gamma not supported for RMSNorm
+        )
+        config.bias_dropout_fusion = False
+        config.apply_rope_fusion = False
+        config.attention_softmax_in_fp32 = True
+        config.ffn_hidden_size = 12288
     else:
         raise ValueError(f"unknown language model type {config.language_model_type}")
 
@@ -177,10 +204,6 @@ def get_vision_projection_config(config, hidden_size):
     elif config.language_model_type == "llama3_8b":
         config.ffn_hidden_size = 14336
         config.activation_func = torch.nn.functional.gelu
-    elif config.language_model_type == "mistral_7b":
-        # TODO: check what needs to be done for other models
-        config.ffn_hidden_size = hidden_size # This was changed to make it compatible with HF's LLava
-        config.activation_func = torch.nn.functional.gelu
     elif config.language_model_type == "yi-34b":
         config.ffn_hidden_size = 20480
         config.normalization = 'LayerNorm'
@@ -188,6 +211,17 @@ def get_vision_projection_config(config, hidden_size):
     elif config.language_model_type == "qwen2.0_72B":
         config.ffn_hidden_size = 29568
         config.normalization = 'LayerNorm'
+        config.activation_func = torch.nn.functional.gelu
+    # The following two have been changed to make it compatible with HF's LLava
+    elif config.language_model_type == "mistral_7b":
+        # TODO: check what needs to be done for other models
+        config.ffn_hidden_size = hidden_size # This was changed to make it compatible with HF's LLava
+        config.activation_func = torch.nn.functional.gelu
+    elif config.language_model_type == "qwen2.5_7b":
+        config.ffn_hidden_size = hidden_size # This was changed to make it compatible with HF's LLava
+        config.activation_func = torch.nn.functional.gelu
+    elif config.language_model_type == "eurollm_9b":
+        config.ffn_hidden_size = hidden_size # This was changed to make it compatible with HF's LLava
         config.activation_func = torch.nn.functional.gelu
     else:
         raise ValueError(f"unknown language model type {config.language_model_type}")
