@@ -103,6 +103,13 @@ class MoEArgs:
 
 
 @dataclasses.dataclass(frozen=True)
+class SingularityArgs:
+    image: str = "Megatron.sif"
+    binds: list[str] = dataclasses.field(default_factory=list)
+    nv: bool = True
+
+
+@dataclasses.dataclass(frozen=True)
 class LaunchArgs:
     job_name: str
     run_dir: str
@@ -131,6 +138,7 @@ def main(
     validation: ValidationArgs,
     data: DataArgs,
     moe: MoEArgs,
+    singularity: SingularityArgs,
     launch: LaunchArgs,
 ):
     megatron_dir = os.path.abspath(os.path.join(__file__, "..", "..", ".."))
@@ -147,6 +155,7 @@ def main(
         "validation": dataclasses.asdict(validation),
         "data": dataclasses.asdict(data),
         "moe": dataclasses.asdict(moe),
+        "singularity": dataclasses.asdict(singularity),
         "megatron_dir": megatron_dir,
     }
 

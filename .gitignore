@@ -11,3 +11,6 @@ local/
 .gitmodules
 .apex
 *.local.yaml
+venv
+*.sif
+*.tar

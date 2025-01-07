@@ -1,0 +1,12 @@
+FROM nvcr.io/nvidia/pytorch:24.03-py3
+
+ARG TE_TAG=2215fa5c7557b66034068816020f9f611019e457
+
+RUN pip install --no-cache-dir --no-build-isolation -v \
+    "transformer-engine @ git+https://github.com/NVIDIA/TransformerEngine.git@${TE_TAG}" \
+    transformers \
+    sentencepiece
+
+RUN mkdir -p /usr/local/cuda/compat/lib/ && \
+    ln -s /.singularity.d/libs/libcuda.so /usr/local/cuda/compat/lib/libcuda.so && \
+    ln -s /.singularity.d/libs/libcuda.so.1 /usr/local/cuda/compat/lib/libcuda.so.1

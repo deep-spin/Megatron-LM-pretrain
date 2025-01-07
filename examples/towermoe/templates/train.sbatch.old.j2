@@ -215,40 +215,26 @@ TORCHRUN_ARGS="\
 
 cd {{ megatron_dir }}
 
-SINGULARITY_ARGS="\
-    {%- if singularity.nv %}
-    --nv \
-    {%- endif %}
-    {%- for bind in singularity.binds %}
-    --bind {{ bind }}:{{ bind }} \
-    {%- endfor %}
-    --env PYTHONPATH={{ megatron_dir }} \
-    {{ singularity.image }}"
-
 export CUDA_DEVICE_MAX_CONNECTIONS=1
 export OMP_NUM_THREADS=$((CPUS_PER_GPU * 2))
 
 # NCCL Env Vars
-#export UCX_RC_TIMEOUT=900s
-#export UCX_UD_TIMEOUT=900s
-#export UCX_DC_TIMEOUT=900s
-#export NCCL_SOCKET_IFNAME=ib0
-#export NCCL_IB_SL=1
-#export UCX_IB_SL=1
-#export NVSHMEM_IB_SL=1
-#export NVSHMEM_DISABLE_NCCL=1
-#export UCX_MEMTYPE_CACHE=n
+export UCX_RC_TIMEOUT=900s
+export UCX_UD_TIMEOUT=900s
+export UCX_DC_TIMEOUT=900s
+export NCCL_SOCKET_IFNAME=ib0
+export NCCL_IB_SL=1
+export UCX_IB_SL=1
+export NVSHMEM_IB_SL=1
+export NVSHMEM_DISABLE_NCCL=1
+export UCX_MEMTYPE_CACHE=n
 #export TORCH_NCCL_BLOCKING_WAIT=1
 
 export NCCL_DEBUG="WARN"
 
 mkdir -p $TENSORBOARD_DIR
 
-export SINGULARITY_CACHEDIR="/leonardo_scratch/large/userexternal/dalves00/singularity"
-export SINGULARITY_TMPDIR="/leonardo_scratch/large/userexternal/dalves00/singularity"
-
 srun ${SRUN_ARGS} -- \
-    singularity exec ${SINGULARITY_ARGS} \
     torchrun ${TORCHRUN_ARGS} \
     pretrain_gpt.py \
     ${NETWORK_SIZE_ARGS} \

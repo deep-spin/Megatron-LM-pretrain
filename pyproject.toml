@@ -52,6 +52,9 @@ classifiers = [
 [tool.setuptools.dynamic]
 dependencies = { file = ["megatron/core/requirements.txt"] }
 
+[tool.setuptools]
+py-modules = []
+
 [project.urls]
 Download = "https://github.com/NVIDIA/Megatron-LM/releases"
 Homepage = "https://github.com/NVIDIA/Megatron-LM/megatron/core"
