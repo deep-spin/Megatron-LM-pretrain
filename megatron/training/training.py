@@ -289,13 +289,16 @@ def pretrain(train_valid_test_dataset_provider,
 
     if args.do_valid:
         prefix = f'iteration {iteration} on validation set'
+        if args.multiple_valid_sets and valid_data_iterator is None:
+                valid_data_iterator=dict()
+                for valid_path_i in range(0, len(args.valid_data_path), 2):
+                    valid_data_iterator[args.valid_data_path[valid_path_i]]=None
         evaluate_and_print_results(prefix, forward_step_func,
                                    valid_data_iterator, model,
                                    iteration, process_non_loss_data_func, config,
                                    verbose=True, write_to_tensorboard=not args.skip_train)
 
-    if args.do_test:
-        prefix = f'iteration {iteration} on test set'
+    if args.do_test and not args.multiple_valid_sets:
         evaluate_and_print_results(prefix, forward_step_func,
                                    test_data_iterator, model,
                                    iteration, process_non_loss_data_func, config,
