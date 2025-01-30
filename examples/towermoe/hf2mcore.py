@@ -1,10 +1,9 @@
 import dataclasses
-import json
 import jsonargparse
 import jinja2
 import os
 
-from typing import Any, Optional
+from typing import Optional
 
 
 @dataclasses.dataclass(frozen=True)
@@ -21,12 +20,20 @@ class DistributedArgs:
 
 
 @dataclasses.dataclass(frozen=True)
+class SingularityArgs:
+    image: str = "Megatron.sif"
+    binds: list[str] = dataclasses.field(default_factory=list)
+    nv: bool = True
+
+
+@dataclasses.dataclass(frozen=True)
 class LaunchArgs:
     run_dir: str
     account: Optional[str] = None
     partition: Optional[str] = None
     qos: Optional[str] = None
     activate_env_cmd: str = ""
+    time: Optional[str] = None
     # Ignored arguments (used only in training)
     cpus_per_node: Optional[int] = None
     exclusive: bool = False
@@ -35,6 +42,7 @@ class LaunchArgs:
 def main(
     checkpointing: CheckpointingArgs,
     distributed: DistributedArgs,
+    singularity: SingularityArgs,
     launch: LaunchArgs,
 ):
     megatron_dir = os.path.abspath(os.path.join(__file__, "..", "..", ".."))
@@ -42,6 +50,7 @@ def main(
     cfg = {
         "checkpointing": dataclasses.asdict(checkpointing),
         "distributed": dataclasses.asdict(distributed),
+        "singularity": dataclasses.asdict(singularity),
         "launch": dataclasses.asdict(launch),
         "megatron_dir": megatron_dir,
     }

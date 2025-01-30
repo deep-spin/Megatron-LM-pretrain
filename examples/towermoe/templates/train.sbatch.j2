@@ -5,6 +5,7 @@
 #SBATCH --nodes={{ launch.num_nodes }}
 #SBATCH --ntasks-per-node=1
 #SBATCH --gpus-per-node={{ launch.gpus_per_node }}
+#SBATCH --cpus-per-task={{ launch.cpus_per_node }}
 {%- if 'time' in launch and launch.time %}
 #SBATCH --time={{ launch.time }}
 {%- endif -%}
@@ -20,6 +21,8 @@
 {%- if launch.exclusive %}
 #SBATCH --exclusive
 {%- endif %}
+#SBATCH -x lrdn[0001-0180]
+#SBATCH -x lrdn[0421-3456]
 
 set -euo pipefail
 set -x
@@ -154,6 +157,7 @@ DISTRUBUTED_ARGS="\
     --overlap-param-gather \
     {%- endif %}
     --overlap-grad-reduce \
+    --distributed-timeout-minutes {{ distributed.distributed_timeout_minutes }} \
     "
 
 VALIDATION_ARGS="\
@@ -177,6 +181,7 @@ DATA_ARGS="\
     --train-iters {{ data.train_iters }} \
     --num-workers {{ data.num_workers }} \
     --data-cache-path $DATA_CACHE_DIR \
+    --split 100,0,0 \
     "
 
 MOE_ARGS="\
@@ -215,6 +220,9 @@ TORCHRUN_ARGS="\
 
 cd {{ megatron_dir }}
 
+# We increase the TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC to 20 minutes to avoid NCCL timeouts
+TIMEOUT=$((60 * 20)) # 20 minutes
+echo "Setting UCX and NCCL timeouts to ${TIMEOUT}s"
 SINGULARITY_ARGS="\
     {%- if singularity.nv %}
     --nv \
@@ -223,24 +231,31 @@ SINGULARITY_ARGS="\
     --bind {{ bind }}:{{ bind }} \
     {%- endfor %}
     --env PYTHONPATH={{ megatron_dir }} \
+    --env UCX_RC_TIMEOUT=${TIMEOUT}s \
+    --env UCX_UD_TIMEOUT=${TIMEOUT}s \
+    --env UCX_DC_TIMEOUT=${TIMEOUT}s \
+    --env NCCL_SOCKET_IFNAME=ib0 \
+    --env NCCL_IB_SL=1 \
+    --env UCX_IB_SL=1 \
+    --env NVSHMEM_IB_SL=1 \
+    --env NVSHMEM_DISABLE_NCCL=1 \
+    --env UCX_MEMTYPE_CACHE=n \
+    --env NCCL_DEBUG=WARN \
+    --env TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC=${TIMEOUT} \
+    --env CUDA_MAX_DEVICE_CONNECTIONS=1 \
+    --env OMP_NUM_THREADS=$((CPUS_PER_GPU * 2)) \
     {{ singularity.image }}"
 
 export CUDA_DEVICE_MAX_CONNECTIONS=1
-export OMP_NUM_THREADS=$((CPUS_PER_GPU * 2))
+export NCCL_SOCKET_IFNAME=ib0,ib1,ib2,ib3
+export NCCL_IB_HCA=mlx5_0,mlx5_1,mlx5_2,mlx5_3
 
-# NCCL Env Vars
-#export UCX_RC_TIMEOUT=900s
-#export UCX_UD_TIMEOUT=900s
-#export UCX_DC_TIMEOUT=900s
-#export NCCL_SOCKET_IFNAME=ib0
-#export NCCL_IB_SL=1
-#export UCX_IB_SL=1
-#export NVSHMEM_IB_SL=1
-#export NVSHMEM_DISABLE_NCCL=1
-#export UCX_MEMTYPE_CACHE=n
-#export TORCH_NCCL_BLOCKING_WAIT=1
-
-export NCCL_DEBUG="WARN"
+case $(( ${SLURM_LOCALID} )) in
+0) export UCX_NET_DEVICES=mlx5_0:1 CUDA_VISIBLE_DEVICES=0 ;;
+1) export UCX_NET_DEVICES=mlx5_1:1 CUDA_VISIBLE_DEVICES=1 ;;
+2) export UCX_NET_DEVICES=mlx5_2:1 CUDA_VISIBLE_DEVICES=2 ;;
+3) export UCX_NET_DEVICES=mlx5_3:1 CUDA_VISIBLE_DEVICES=3 ;;
+esac
 
 mkdir -p $TENSORBOARD_DIR
 

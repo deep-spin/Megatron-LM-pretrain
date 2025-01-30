@@ -22,6 +22,13 @@ class DistributedArgs:
 
 
 @dataclasses.dataclass(frozen=True)
+class SingularityArgs:
+    image: str = "Megatron.sif"
+    binds: list[str] = dataclasses.field(default_factory=list)
+    nv: bool = True
+
+
+@dataclasses.dataclass(frozen=True)
 class LaunchArgs:
     job_name: str
     run_dir: str
@@ -37,6 +44,7 @@ class LaunchArgs:
 def main(
     checkpointing: CheckpointingArgs,
     distributed: DistributedArgs,
+    singularity: SingularityArgs,
     launch: LaunchArgs,
 ):
     megatron_dir = os.path.abspath(os.path.join(__file__, "..", "..", ".."))
@@ -44,6 +52,7 @@ def main(
     cfg = {
         "checkpointing": dataclasses.asdict(checkpointing),
         "distributed": dataclasses.asdict(distributed),
+        "singularity": dataclasses.asdict(singularity),
         "launch": dataclasses.asdict(launch),
         "megatron_dir": megatron_dir,
     }

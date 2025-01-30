@@ -66,20 +66,9 @@ for LOAD_DIR in "$MEGATRON_CKPTS_DIR"/iter_*; do
             --qos={{ launch.qos }} \
             {%- endif %}
             "
-        
-        SINGULARITY_ARGS="\
-            {%- if singularity.nv %}
-            --nv \
-            {%- endif %}
-            {%- for bind in singularity.binds %}
-            --bind {{ bind }}:{{ bind }} \
-            {%- endfor %}
-            --env PYTHONPATH={{ megatron_dir }} \
-            {{ singularity.image }}"
 
         # Call the convert.py script with the required arguments
         srun $SRUN_ARGS -- \
-            singularity exec ${SINGULARITY_ARGS} \
             python examples/mixtral/convert.py mcore-to-hf \
             --mcore-load-dir "$LOAD_DIR" \
             --hf-save-dir "$SAVE_DIR" \

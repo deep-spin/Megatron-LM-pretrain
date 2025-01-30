@@ -1,20 +1,20 @@
 launch:
-    job_name: "phase1-1.7B-2x8-g1"
-    run_dir: ./local/runs/granularity/1.7B-2x8-g1/
+    job_name: "phase1-1.7B-1x8-g8"
+    run_dir: ./local/runs/granularity/1.7B-1x8-g8/
     num_nodes: 64
     gpus_per_node: 4
     exclusive: True
 network_size:
     num_layers: 24
     hidden_size: 2048
-    ffn_hidden_size: 5632
+    ffn_hidden_size: 704
     num_attention_heads: 16
     num_query_groups: 8
     max_position_embeddings: 4096
 moe:
-    num_experts: 8
+    num_experts: 64
     expert_model_parallel_size: 1
-    moe_router_topk: 2
+    moe_router_topk: 8
 logging:
     log_params_norm: True
     log_throughput: True
@@ -30,9 +30,9 @@ learning_rate:
     lr_warmup_iters: 1192
 checkpointing:
     save: ./${launch.run_dir}/phase1-checkpoints/
-    save_interval: 2000
+    save_interval: 1000
     load: ${checkpointing.save}
-    pretrained_checkpoint: ./local/mcore-pretrained-ckpts/1.7B-2x8-g1/
+    pretrained_checkpoint: ./local/mcore-pretrained-ckpts/1.7B-1x8-g8/
     annealing: False
 validation:
     eval_interval: 1000

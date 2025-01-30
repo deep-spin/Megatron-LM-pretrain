@@ -74,6 +74,7 @@ class DistributedArgs:
     pipeline_model_parallel_size: int = 1
     num_layers_per_virtual_pipeline_stage: Optional[int] = None
     distributed_optimizer: bool = False
+    distributed_timeout_minutes: int = 20
 
 
 @dataclasses.dataclass(frozen=True)

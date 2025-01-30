@@ -1,0 +1,9 @@
+checkpointing:
+    mcore_ckpt_dir: ./local/mcore-pretrained-ckpts/1.7B-2x8-g8/
+    hf_ckpt_dir: ./local/hf-pretrained-ckpts/1.7B-2x8-g8/
+distributed:
+    tensor_model_parallel_size: 1
+    pipeline_model_parallel_size: 2
+    expert_model_parallel_size: 1
+launch:
+    run_dir: ./local/runs/conversions/1.7B-2x8-g8/

@@ -1,0 +1,10 @@
+launch:
+    job_name: "mcore2hf-1.7B-1x8-g8-phase1"
+    run_dir: ./local/runs/granularity/1.7B-1x8-g8/
+checkpointing:
+    megatron_ckpts_dir: ./${launch.run_dir}/phase1-checkpoints/
+    hf_ckpts_dir: ./${launch.run_dir}/hf-phase1-checkpoints/
+    hf_tokenizer_path: ./local/tokenizers/eurollm-tokenizer
+distributed:
+    tensor_model_parallel_size: 1
+    pipeline_model_parallel_size: 2

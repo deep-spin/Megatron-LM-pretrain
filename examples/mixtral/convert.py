@@ -36,57 +36,57 @@ def convert_hf2mcore(args):
         ep_size=ep_size,
         dtype=dtype,
     )
-
     hf_sd = AutoModelForCausalLM.from_pretrained(args.hf_load_dir).state_dict()
+    print("> Loaded Model", flush=True)
 
     mcore_sds = [
         [[{} for _ in range(tp_size)] for _ in range(ep_size)] for _ in range(pp_size)
     ]
 
-    print("> Converting embeddings")
+    print("> Converting embeddings", flush=True)
     convert_hf2mcore_embedding(mcore_sds, hf_sd, tp_size=tp_size, ep_size=ep_size, dtype=dtype)
 
-    print("> Converting final_layernorm and lm_head")
+    print("> Converting final_layernorm and lm_head", flush=True)
     convert_hf2mcore_final_layernorm_and_lm_head(
         mcore_sds, hf_sd, tp_size=tp_size, ep_size=ep_size, dtype=dtype,
     )
 
     for layer_idx in range(hf_config.num_hidden_layers):
-        print("> Converting layer", layer_idx)
+        print("> Converting layer", layer_idx, flush=True)
         layer_info = get_layer_info(
             layer_idx=layer_idx, pp_size=pp_size, num_layers=hf_config.num_hidden_layers
         )
-        print(f"  > HF layer prefix: {layer_info['hf_layer_prefix']}")
-        print(f"  > MCore layer prefix: {layer_info['mcore_layer_prefix']}")
+        print(f"  > HF layer prefix: {layer_info['hf_layer_prefix']}", flush=True)
+        print(f"  > MCore layer prefix: {layer_info['mcore_layer_prefix']}", flush=True)
 
-        print("  > Converting attention norm")
+        print("  > Converting attention norm", flush=True)
         convert_hf2mcore_attn_norm(
             mcore_sds, hf_sd, layer_info, tp_size=tp_size, ep_size=ep_size, dtype=dtype
         )
 
-        print("  > Converting attention qkv")
+        print("  > Converting attention qkv", flush=True)
         dim = hf_config.hidden_size // hf_config.num_attention_heads
         convert_hf2mcore_attn_qkv(
             mcore_sds, hf_sd, layer_info,
             dim=dim, tp_size=tp_size, ep_size=ep_size, dtype=dtype,
         )
 
-        print("  > Converting attention output")
+        print("  > Converting attention output", flush=True)
         convert_hf2mcore_attn_output(
             mcore_sds, hf_sd, layer_info, tp_size=tp_size, ep_size=ep_size, dtype=dtype
         )
 
-        print("  > Converting mlp norm")
+        print("  > Converting mlp norm", flush=True)
         convert_hf2mcore_mlp_norm(
             mcore_sds, hf_sd, layer_info, tp_size=tp_size, ep_size=ep_size, dtype=dtype
         )
 
-        print("  > Converting mlp router")
+        print("  > Converting mlp router", flush=True)
         convert_hf2mcore_mlp_router(
             mcore_sds, hf_sd, layer_info, tp_size=tp_size, ep_size=ep_size, dtype=dtype,
         )
 
-        print("  > Converting mlp experts W1 and W3")
+        print("  > Converting mlp experts W1 and W3", flush=True)
         convert_hf2mcore_mlp_experts_w1_w3(
             mcore_sds, hf_sd, layer_info,
             num_experts=hf_config.num_local_experts,
@@ -96,7 +96,7 @@ def convert_hf2mcore(args):
             moe_grouped_gemm=args.moe_grouped_gemm,
         )
 
-        print("  > Converting mlp experts W2")
+        print("  > Converting mlp experts W2", flush=True)
         convert_hf2mcore_mlp_experts_w2(
             mcore_sds, hf_sd, layer_info,
             num_experts=hf_config.num_local_experts,
@@ -107,16 +107,16 @@ def convert_hf2mcore(args):
         )
 
     for key in hf_sd:
-        print(f"Warning: Unconverted key: {key}")
+        print(f"Warning: Unconverted key: {key}", flush=True)
 
-    print(f"> Saving checkpoints")
+    print(f"> Saving checkpoints", flush=True)
     os.makedirs(args.mcore_save_dir, exist_ok=True)
     with open(f"{args.mcore_save_dir}/latest_checkpointed_iteration.txt", "w") as f:
         f.write(f"{margs.iteration}\n")
 
     iter_dir = f"{args.mcore_save_dir}/iter_{margs.iteration:07d}"
     for pp_rank, ep_rank, tp_rank in product(range(pp_size), range(ep_size), range(tp_size)):
-        print(f"  > Saving pp_rank={pp_rank}, ep_rank={ep_rank}, tp_rank={tp_rank}")
+        print(f"  > Saving pp_rank={pp_rank}, ep_rank={ep_rank}, tp_rank={tp_rank}", flush=True)
         sub_dir_name = get_checkpoint_sub_dir_name(
             tp_rank=tp_rank,
             pp_rank=pp_rank,
@@ -170,6 +170,11 @@ def convert_mcore2hf(args):
         assert ckpt_sd["checkpoint_version"] == 3.0
         mcore_args.append(ckpt_sd["args"])
         mcore_sds[pp_rank][ep_rank][tp_rank] = ckpt_sd["model"]
+
+    # Overwrite rank to ensure all the arguments are the same.
+    # Otherwise, the next assertion will fail.
+    for mcore_arg in mcore_args:
+        mcore_arg.rank = 0
 
     assert all([mcore_args[0] == mcore_arg for mcore_arg in mcore_args])
     margs = mcore_args[0]
