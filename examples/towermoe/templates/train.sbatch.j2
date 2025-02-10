@@ -221,7 +221,7 @@ TORCHRUN_ARGS="\
 cd {{ megatron_dir }}
 
 # We increase the TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC to 20 minutes to avoid NCCL timeouts
-TIMEOUT=$((60 * 20)) # 20 minutes
+TIMEOUT=$((60 * 30)) # 30 minutes
 echo "Setting UCX and NCCL timeouts to ${TIMEOUT}s"
 SINGULARITY_ARGS="\
     {%- if singularity.nv %}
