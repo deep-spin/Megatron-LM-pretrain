@@ -19,6 +19,9 @@ def main(
     active_expansion: int,
     granularity: int,
     router_aux_loss_coef: float = 0.01,
+    shuffle: bool = False,
+    init_std: float = 0.006,
+    random_percentage: float = 0.0,
 ):
     llama = AutoModelForCausalLM.from_pretrained(llama_model_path)
     assert llama.config.intermediate_size % granularity == 0, "Granularity should divide intermediate size"
@@ -40,6 +43,9 @@ def main(
     mixtral_sd = upcycle_state_dict(
         llama_sd=llama.state_dict(),
         mixtral_cfg=mixtral_cfg,
+        shuffle=shuffle,
+        init_std=init_std,
+        random_percentage=random_percentage,
     )
 
     print(f"> Creating Mixtral model")
@@ -76,6 +82,9 @@ def upcycle_state_dict(
     *,
     llama_sd: dict[str, Tensor],
     mixtral_cfg: MixtralConfig,
+    shuffle: bool,
+    init_std: float,
+    random_percentage: float,
 ):
     mixtral_sd = {}
 
@@ -104,6 +113,7 @@ def upcycle_state_dict(
             layer_id=layer_id,
             hidden_size=mixtral_cfg.hidden_size,
             num_local_experts=mixtral_cfg.num_local_experts,
+            init_std=init_std,
         ))
 
         print("  > Upcycle mlp")
@@ -112,6 +122,9 @@ def upcycle_state_dict(
             layer_id=layer_id,
             num_local_experts=mixtral_cfg.num_local_experts,
             intermediate_size=mixtral_cfg.intermediate_size,
+            shuffle=shuffle,
+            init_std=init_std,
+            random_percentage=random_percentage,
         ))
 
     for key in llama_sd:
@@ -160,15 +173,22 @@ def extract_mlp_layernorm(llama_sd: dict[str, Tensor], layer_id: int) -> dict[st
 
 
 def create_router(
-    *, layer_id: int, hidden_size: int, num_local_experts: int,
+    *, layer_id: int, hidden_size: int, num_local_experts: int, init_std: float,
 ) -> dict[str, Tensor]:
     router_w = torch.empty(num_local_experts, hidden_size)
-    torch.nn.init.normal_(router_w, mean=0.0, std=0.02)
+    torch.nn.init.normal_(router_w, mean=0.0, std=init_std)
     return {f"model.layers.{layer_id}.block_sparse_moe.gate.weight": router_w}
 
 
 def upcycle_mlp(
-    *, llama_sd: dict[str, Tensor], layer_id: int, num_local_experts: int, intermediate_size: int,
+    *,
+    llama_sd: dict[str, Tensor],
+    layer_id: int,
+    num_local_experts: int,
+    intermediate_size: int,
+    shuffle: bool,
+    init_std: float,
+    random_percentage: float,
 ) -> dict[str, Tensor]:
     up_proj = llama_sd.pop(f"model.layers.{layer_id}.mlp.up_proj.weight")
     gate_proj = llama_sd.pop(f"model.layers.{layer_id}.mlp.gate_proj.weight")
@@ -189,6 +209,12 @@ def upcycle_mlp(
     gate_proj = gate_proj.repeat(num_copies, 1)
     down_proj = down_proj.repeat(1, num_copies)
 
+    if shuffle:
+        perm = torch.randperm(up_proj.shape[0])
+        up_proj = up_proj[perm]
+        gate_proj = gate_proj[perm]
+        down_proj = down_proj[:, perm]
+
     up_shards = up_proj.chunk(num_local_experts, dim=0)
     gate_shards = gate_proj.chunk(num_local_experts, dim=0)
     down_shards = down_proj.chunk(num_local_experts, dim=1)
@@ -199,9 +225,18 @@ def upcycle_mlp(
         assert gate_shards[i].shape == (intermediate_size, hidden_size)
         assert down_shards[i].shape == (hidden_size, intermediate_size)
         # We need to clone the tensors to avoid some saving errors
-        upcycled_sd[f"model.layers.{layer_id}.block_sparse_moe.experts.{i}.w3.weight"] = up_shards[i].clone()
-        upcycled_sd[f"model.layers.{layer_id}.block_sparse_moe.experts.{i}.w2.weight"] = down_shards[i].clone()
-        upcycled_sd[f"model.layers.{layer_id}.block_sparse_moe.experts.{i}.w1.weight"] = gate_shards[i].clone()
+        up_shard = up_shards[i].clone()
+        gate_shard = gate_shards[i].clone()
+        down_shard = down_shards[i].clone()
+
+        for tensor in (up_shard, gate_shard, down_shard):
+            mask = torch.rand(tensor.shape, device=tensor.device) < random_percentage
+            re_init = torch.nn.init.normal_(torch.empty_like(tensor), mean=0.0, std=init_std)
+            tensor.copy_(torch.where(mask, re_init, tensor))
+
+        upcycled_sd[f"model.layers.{layer_id}.block_sparse_moe.experts.{i}.w3.weight"] = up_shard
+        upcycled_sd[f"model.layers.{layer_id}.block_sparse_moe.experts.{i}.w2.weight"] = down_shard
+        upcycled_sd[f"model.layers.{layer_id}.block_sparse_moe.experts.{i}.w1.weight"] = gate_shard
 
     return upcycled_sd
 
