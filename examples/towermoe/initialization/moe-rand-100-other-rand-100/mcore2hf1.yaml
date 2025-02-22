@@ -3,7 +3,7 @@ launch:
     run_dir: ./local/runs/initialization/moe-rand-100-other-rand-100/
 checkpointing:
     megatron_ckpts_dir: ./${launch.run_dir}/checkpoints/
-    hf_ckpts_dir: ./${launch.run_dir}/hf-checkpoints/
+    hf_ckpts_dir: ./${launch.run_dir}/hf-train-checkpoints/
     hf_tokenizer_path: ./local/tokenizers/eurollm-tokenizer
 distributed:
     tensor_model_parallel_size: 1
