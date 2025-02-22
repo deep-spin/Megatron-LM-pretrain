@@ -21,7 +21,8 @@ def main(
     router_aux_loss_coef: float = 0.01,
     shuffle: bool = False,
     init_std: float = 0.006,
-    random_percentage: float = 0.0,
+    moe_reinit_percentage: float = 0.0,
+    other_reinit_percentage: float = 0.0,
 ):
     llama = AutoModelForCausalLM.from_pretrained(llama_model_path)
     assert llama.config.intermediate_size % granularity == 0, "Granularity should divide intermediate size"
@@ -45,7 +46,8 @@ def main(
         mixtral_cfg=mixtral_cfg,
         shuffle=shuffle,
         init_std=init_std,
-        random_percentage=random_percentage,
+        moe_reinit_percentage=moe_reinit_percentage,
+        other_reinit_percentage=other_reinit_percentage,
     )
 
     print(f"> Creating Mixtral model")
@@ -84,29 +86,57 @@ def upcycle_state_dict(
     mixtral_cfg: MixtralConfig,
     shuffle: bool,
     init_std: float,
-    random_percentage: float,
+    moe_reinit_percentage: float,
+    other_reinit_percentage: float,
 ):
     mixtral_sd = {}
 
     print("> Copying embeddings")
-    mixtral_sd.update(extract_embeddings(llama_sd))
+    mixtral_sd.update(extract_embeddings(
+        llama_sd,
+        other_reinit_percentage=other_reinit_percentage,
+        init_std=init_std,
+    ))
 
     print("> Copying lm_head")
-    mixtral_sd.update(extract_lm_head(llama_sd))
+    mixtral_sd.update(extract_lm_head(
+        llama_sd,
+        other_reinit_percentage=other_reinit_percentage,
+        init_std=init_std,
+    ))
 
     print("> Copying final layernorm")
-    mixtral_sd.update(extract_final_layernorm(llama_sd))
+    mixtral_sd.update(extract_final_layernorm(
+        llama_sd,
+        other_reinit_percentage=other_reinit_percentage,
+        init_std=init_std,
+    ))
 
     for layer_id in range(mixtral_cfg.num_hidden_layers):
         print(f"> Copying layer {layer_id}")
         print("  > Copying attention layernorm")
-        mixtral_sd.update(extract_attention_layernorm(llama_sd, layer_id))
+        mixtral_sd.update(extract_attention_layernorm(
+            llama_sd,
+            layer_id,
+            other_reinit_percentage=other_reinit_percentage,
+            init_std=init_std,
+        ))
 
         print("  > Copying attention projections")
-        mixtral_sd.update(extract_attention_projection(llama_sd, layer_id))
+        mixtral_sd.update(extract_attention_projection(
+            llama_sd,
+            layer_id,
+            other_reinit_percentage=other_reinit_percentage,
+            init_std=init_std,
+        ))
 
         print("  > Copying mlp layernorm")
-        mixtral_sd.update(extract_mlp_layernorm(llama_sd, layer_id))
+        mixtral_sd.update(extract_mlp_layernorm(
+            llama_sd,
+            layer_id,
+            other_reinit_percentage=other_reinit_percentage,
+            init_std=init_std,
+        ))
 
         print("  > Create router")
         mixtral_sd.update(create_router(
@@ -124,7 +154,7 @@ def upcycle_state_dict(
             intermediate_size=mixtral_cfg.intermediate_size,
             shuffle=shuffle,
             init_std=init_std,
-            random_percentage=random_percentage,
+            moe_reinit_percentage=moe_reinit_percentage,
         ))
 
     for key in llama_sd:
@@ -133,32 +163,71 @@ def upcycle_state_dict(
     return mixtral_sd
 
 
-def extract_embeddings(llama_sd: dict[str, Tensor]) -> dict[str, Tensor]:
+def extract_embeddings(
+    llama_sd: dict[str, Tensor],
+    *,
+    other_reinit_percentage: float,
+    init_std: float,
+) -> dict[str, Tensor]:
     embed_weight = llama_sd.pop("model.embed_tokens.weight")
+    reinit_tensor(embed_weight, other_reinit_percentage, init_std)
     return {"model.embed_tokens.weight": embed_weight}
 
 
-def extract_lm_head(llama_sd: dict[str, Tensor]) -> dict[str, Tensor]:
+def extract_lm_head(
+    llama_sd: dict[str, Tensor],
+    *,
+    other_reinit_percentage: float,
+    init_std: float,
+) -> dict[str, Tensor]:
     lm_head_weight = llama_sd.pop("lm_head.weight")
     assert "lm_head.bias" not in llama_sd, "lm_head.bias should not be present"
+    reinit_tensor(lm_head_weight, other_reinit_percentage, init_std)
     return {"lm_head.weight": lm_head_weight}
 
 
-def extract_final_layernorm(llama_sd: dict[str, Tensor]) -> dict[str, Tensor]:
+def extract_final_layernorm(
+    llama_sd: dict[str, Tensor],
+    *,
+    other_reinit_percentage: float,
+    init_std: float,
+) -> dict[str, Tensor]:
     norm_weight = llama_sd.pop("model.norm.weight")
+    reinit_tensor(norm_weight, other_reinit_percentage, init_std)
     return {"model.norm.weight": norm_weight}
 
 
-def extract_attention_layernorm(llama_sd: dict[str, Tensor], layer_id: int) -> dict[str, Tensor]:
+def extract_attention_layernorm(
+    llama_sd: dict[str, Tensor],
+    layer_id: int,
+    *,
+    other_reinit_percentage: float,
+    init_std: float,
+) -> dict[str, Tensor]:
     norm_weight = llama_sd.pop(f"model.layers.{layer_id}.input_layernorm.weight")
+    reinit_tensor(norm_weight, other_reinit_percentage, init_std)
     return {f"model.layers.{layer_id}.input_layernorm.weight": norm_weight}
 
 
-def extract_attention_projection(llama_sd: dict[str, Tensor], layer_id: int) -> dict[str, Tensor]:
+def extract_attention_projection(
+    llama_sd: dict[str, Tensor],
+    layer_id: int,
+    *,
+    other_reinit_percentage: float,
+    init_std: float,
+) -> dict[str, Tensor]:
     q_proj = llama_sd.pop(f"model.layers.{layer_id}.self_attn.q_proj.weight")
     k_proj = llama_sd.pop(f"model.layers.{layer_id}.self_attn.k_proj.weight")
     v_proj = llama_sd.pop(f"model.layers.{layer_id}.self_attn.v_proj.weight")
     o_proj = llama_sd.pop(f"model.layers.{layer_id}.self_attn.o_proj.weight")
+    if layer_id == 0:
+        print("Q proj before", q_proj[:10, :10])
+    reinit_tensor(q_proj, other_reinit_percentage, init_std)
+    if layer_id == 0:
+        print("Q proj after", q_proj[:10, :10])
+    reinit_tensor(k_proj, other_reinit_percentage, init_std)
+    reinit_tensor(v_proj, other_reinit_percentage, init_std)
+    reinit_tensor(o_proj, other_reinit_percentage, init_std)
     return {
         f"model.layers.{layer_id}.self_attn.q_proj.weight": q_proj,
         f"model.layers.{layer_id}.self_attn.k_proj.weight": k_proj,
@@ -167,8 +236,15 @@ def extract_attention_projection(llama_sd: dict[str, Tensor], layer_id: int) -> 
     }
 
 
-def extract_mlp_layernorm(llama_sd: dict[str, Tensor], layer_id: int) -> dict[str, Tensor]:
+def extract_mlp_layernorm(
+    llama_sd: dict[str, Tensor],
+    layer_id: int,
+    *,
+    other_reinit_percentage: float,
+    init_std: float,
+) -> dict[str, Tensor]:
     norm_weight = llama_sd.pop(f"model.layers.{layer_id}.post_attention_layernorm.weight")
+    reinit_tensor(norm_weight, other_reinit_percentage, init_std)
     return {f"model.layers.{layer_id}.post_attention_layernorm.weight": norm_weight}
 
 
@@ -188,7 +264,7 @@ def upcycle_mlp(
     intermediate_size: int,
     shuffle: bool,
     init_std: float,
-    random_percentage: float,
+    moe_reinit_percentage: float,
 ) -> dict[str, Tensor]:
     up_proj = llama_sd.pop(f"model.layers.{layer_id}.mlp.up_proj.weight")
     gate_proj = llama_sd.pop(f"model.layers.{layer_id}.mlp.gate_proj.weight")
@@ -229,16 +305,26 @@ def upcycle_mlp(
         gate_shard = gate_shards[i].clone()
         down_shard = down_shards[i].clone()
 
+        if layer_id == 0 and i == 0:
+            print("Up shard before", up_shard[:10, :10])
+
         for tensor in (up_shard, gate_shard, down_shard):
-            mask = torch.rand(tensor.shape, device=tensor.device) < random_percentage
-            re_init = torch.nn.init.normal_(torch.empty_like(tensor), mean=0.0, std=init_std)
-            tensor.copy_(torch.where(mask, re_init, tensor))
+            reinit_tensor(tensor, moe_reinit_percentage, init_std)
+
+        if layer_id == 0 and i == 0:
+            print("Up shard after", up_shard[:10, :10])
 
         upcycled_sd[f"model.layers.{layer_id}.block_sparse_moe.experts.{i}.w3.weight"] = up_shard
         upcycled_sd[f"model.layers.{layer_id}.block_sparse_moe.experts.{i}.w2.weight"] = down_shard
         upcycled_sd[f"model.layers.{layer_id}.block_sparse_moe.experts.{i}.w1.weight"] = gate_shard
 
     return upcycled_sd
+
+
+def reinit_tensor(tensor: Tensor, percentage: float, init_std: float):
+    mask = torch.rand(tensor.shape, device=tensor.device) <= percentage
+    re_init = torch.nn.init.normal_(torch.empty_like(tensor), mean=0.0, std=init_std)
+    tensor.copy_(torch.where(mask, re_init, tensor))
 
 
 def print_dict_diff(dict1, dict2):
