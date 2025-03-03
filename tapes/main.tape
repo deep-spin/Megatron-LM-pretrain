@@ -164,6 +164,32 @@ task PretrainModel
         MODEL_ARGS="$MODEL_ARGS --max-position-embeddings 131072"
         MODEL_ARGS="$MODEL_ARGS --ffn-hidden-size 18944"
         MODEL_ARGS="$MODEL_ARGS --norm-epsilon 1e-6"
+    elif [ "$model_type" == "qwen2.5-14B" ]; then
+        MODEL_ARGS="--language-model-type=qwen2.5_14b"
+        MODEL_ARGS="$MODEL_ARGS --normalization RMSNorm"
+        MODEL_ARGS="$MODEL_ARGS --group-query-attention"
+        MODEL_ARGS="$MODEL_ARGS --num-query-groups 8"
+        MODEL_ARGS="$MODEL_ARGS --no-masked-softmax-fusion"
+        MODEL_ARGS="$MODEL_ARGS --use-flash-attn"
+        MODEL_ARGS="$MODEL_ARGS --untie-embeddings-and-output-weights"
+        MODEL_ARGS="$MODEL_ARGS --disable-bias-linear"
+        MODEL_ARGS="$MODEL_ARGS --add-qkv-bias"
+        MODEL_ARGS="$MODEL_ARGS --position-embedding-type rope"
+        MODEL_ARGS="$MODEL_ARGS --rotary-base 1000000"
+        MODEL_ARGS="$MODEL_ARGS --swiglu"
+        MODEL_ARGS="$MODEL_ARGS --no-bias-swiglu-fusion"
+        MODEL_ARGS="$MODEL_ARGS --no-rope-fusion"
+        MODEL_ARGS="$MODEL_ARGS --attention-dropout 0.0"
+        MODEL_ARGS="$MODEL_ARGS --hidden-dropout 0.0"
+        MODEL_ARGS="$MODEL_ARGS --tensor-model-parallel-size 4"
+        MODEL_ARGS="$MODEL_ARGS --pipeline-model-parallel-size 1"
+        MODEL_ARGS="$MODEL_ARGS --num-layers 48"
+        MODEL_ARGS="$MODEL_ARGS --hidden-size 5120"
+        MODEL_ARGS="$MODEL_ARGS --num-attention-heads 40"
+        MODEL_ARGS="$MODEL_ARGS --decoder-seq-length 1024"
+        MODEL_ARGS="$MODEL_ARGS --max-position-embeddings 131072"
+        MODEL_ARGS="$MODEL_ARGS --ffn-hidden-size 27904"
+        MODEL_ARGS="$MODEL_ARGS --norm-epsilon 1e-6"
     elif [ "$model_type" == "eurollm-9B" ]; then
         # TODO: check if rotary-base and norm-epsilon are correct
         MODEL_ARGS="--language-model-type=eurollm_9b"
@@ -269,6 +295,8 @@ func GenerateTestTask
     :: gt_path
     :: eval_bsz
     :: task
+    :: use_tag
+    :: tag
 {
     export NCCL_IB_SL=1
     export CUDA_DEVICE_MAX_CONNECTIONS=1
@@ -300,6 +328,21 @@ func GenerateTestTask
         MODEL_ARGS="$MODEL_ARGS --num-attention-heads 28"
         MODEL_ARGS="$MODEL_ARGS --max-position-embeddings 131072"
         MODEL_ARGS="$MODEL_ARGS --ffn-hidden-size 18944"
+        MODEL_ARGS="$MODEL_ARGS --norm-epsilon 1e-6"
+        MODEL_ARGS="$MODEL_ARGS --decoder-seq-length 2048"
+    elif [ "$model_type" == "qwen2.5-14B" ]; then
+        MODEL_ARGS="--language-model-type=qwen2.5_14b"
+        MODEL_ARGS="$MODEL_ARGS --normalization RMSNorm"
+        MODEL_ARGS="$MODEL_ARGS --group-query-attention"
+        MODEL_ARGS="$MODEL_ARGS --num-query-groups 8"
+        MODEL_ARGS="$MODEL_ARGS --add-qkv-bias"
+        MODEL_ARGS="$MODEL_ARGS --no-bias-swiglu-fusion"
+        MODEL_ARGS="$MODEL_ARGS --no-rope-fusion"
+        MODEL_ARGS="$MODEL_ARGS --num-layers 48"
+        MODEL_ARGS="$MODEL_ARGS --hidden-size 5120"
+        MODEL_ARGS="$MODEL_ARGS --num-attention-heads 40"
+        MODEL_ARGS="$MODEL_ARGS --max-position-embeddings 131072"
+        MODEL_ARGS="$MODEL_ARGS --ffn-hidden-size 27904"
         MODEL_ARGS="$MODEL_ARGS --norm-epsilon 1e-6"
         MODEL_ARGS="$MODEL_ARGS --decoder-seq-length 2048"
     elif [ "$model_type" == "eurollm-9B" ]; then
@@ -376,6 +419,8 @@ func GenerateTestTask
         --output-path $outputs/${task}_outputs \
         --gt-path $gt_path \
         --task ${task} \
+        $([ "$use_tag" == true ] && echo "--use-tag" || echo "") \
+        --tag ${tag} \
         --num-frames 1 \
         --ckpt-format torch
 }
@@ -394,6 +439,8 @@ task GenerateTestCoco calls GenerateTestTask
     :: task=captioning
     :: input_image_path=$coco_dir
     :: gt_path=$coco_gt_path
+    :: use_tag=@
+    :: tag="coco"
     :: .submitter=@
     :: .C=$eval_C
     :: .account=$eval_account
@@ -441,13 +488,13 @@ task FineTuneModel
     :: unfreeze_vit=$finetune_unfreeze_vit
     :: save_interval=$finetune_save_interval
     :: eval_interval=$finetune_eval_interval
+    :: online_eval_config=$finetune_online_eval_config
     :: external_resume=true
     :: external_model_dir=$finetune_model_dir
     :: external_tensorboard=$finetune_tensorboard
     :: nnodes=$finetune_nnodes
     :: gpus=$finetune_gpus
     :: num_workers=@
-    :: master_addr=@
     :: master_port=@
     :: .submitter=@
     :: .C=$finetune_C
@@ -457,17 +504,21 @@ task FineTuneModel
     :: .nodes=$finetune_nodes
     :: .gres=$finetune_gres
     :: .qos=$finetune_qos
+    :: .restart_on_timeout=true
 {
     export NCCL_IB_SL=1
     export CUDA_DEVICE_MAX_CONNECTIONS=1
 
     # Handle external directories similar to PretrainModel
-    if [ "$external_model_dir" != "" ]; then
-        if [ "$external_resume" == false ]; then
-            rm -rf $external_model_dir
+    # on the first node
+    if [ "$SLURM_NODEID" == 0 ]; then
+        if [ "$external_model_dir" != "" ]; then
+            if [ "$external_resume" == false ]; then
+                rm -rf $external_model_dir
+            fi
+            mkdir -p $external_model_dir
+            ln -sf $external_model_dir $finetuned_dir
         fi
-        mkdir -p $external_model_dir
-        ln -sf $external_model_dir $finetuned_dir
     fi
 
     if [ "$external_tensorboard" != "" ]; then
@@ -532,6 +583,32 @@ task FineTuneModel
         MODEL_ARGS="$MODEL_ARGS --max-position-embeddings 131072"
         MODEL_ARGS="$MODEL_ARGS --ffn-hidden-size 18944"
         MODEL_ARGS="$MODEL_ARGS --norm-epsilon 1e-6"
+    elif [ "$model_type" == "qwen2.5-14B" ]; then
+        MODEL_ARGS="--language-model-type=qwen2.5_14b"
+        MODEL_ARGS="$MODEL_ARGS --normalization RMSNorm"
+        MODEL_ARGS="$MODEL_ARGS --group-query-attention"
+        MODEL_ARGS="$MODEL_ARGS --num-query-groups 8"
+        MODEL_ARGS="$MODEL_ARGS --no-masked-softmax-fusion"
+        MODEL_ARGS="$MODEL_ARGS --use-flash-attn"
+        MODEL_ARGS="$MODEL_ARGS --untie-embeddings-and-output-weights"
+        MODEL_ARGS="$MODEL_ARGS --disable-bias-linear"
+        MODEL_ARGS="$MODEL_ARGS --add-qkv-bias"
+        MODEL_ARGS="$MODEL_ARGS --position-embedding-type rope"
+        MODEL_ARGS="$MODEL_ARGS --rotary-base 1000000"
+        MODEL_ARGS="$MODEL_ARGS --swiglu"
+        MODEL_ARGS="$MODEL_ARGS --no-bias-swiglu-fusion"
+        MODEL_ARGS="$MODEL_ARGS --no-rope-fusion"
+        MODEL_ARGS="$MODEL_ARGS --attention-dropout 0.0"
+        MODEL_ARGS="$MODEL_ARGS --hidden-dropout 0.0"
+        MODEL_ARGS="$MODEL_ARGS --tensor-model-parallel-size 4"
+        MODEL_ARGS="$MODEL_ARGS --pipeline-model-parallel-size 1"
+        MODEL_ARGS="$MODEL_ARGS --num-layers 48"
+        MODEL_ARGS="$MODEL_ARGS --hidden-size 5120"
+        MODEL_ARGS="$MODEL_ARGS --num-attention-heads 40"
+        MODEL_ARGS="$MODEL_ARGS --decoder-seq-length 2048"
+        MODEL_ARGS="$MODEL_ARGS --max-position-embeddings 131072"
+        MODEL_ARGS="$MODEL_ARGS --ffn-hidden-size 27904"
+        MODEL_ARGS="$MODEL_ARGS --norm-epsilon 1e-6"
     elif [ "$model_type" == "eurollm-9B" ]; then
         # TODO: check if rotary-base and norm-epsilon are correct
         MODEL_ARGS="--language-model-type=eurollm_9b"
@@ -577,10 +654,15 @@ task FineTuneModel
         MODEL_ARGS="$MODEL_ARGS --pixel-shuffle"
     fi
 
-    #export NCCL_ASYNC_ERROR_HANDLING=1
     distributed_args="--nnodes=$nnodes --nproc_per_node=$gpus"
-    #distributed_args="${distributed_args} --rdzv_backend c10d --rdzv_endpoint $master_addr:$master_port"
-    #distributed_args="${distributed_args} --node_rank=$SLURM_PROCID"
+    # if number of nodes is greater than 1, use rdzv
+    if [ "$nnodes" -gt 1 ]; then
+        # if num_nodes is bigger than 1, get master_addr from the first node
+        master_addr=$(scontrol show hostnames $SLURM_JOB_NODELIST | head -n 1)
+        distributed_args="${distributed_args} --rdzv_backend c10d --rdzv_endpoint $master_addr:$master_port --rdzv_id $SLURM_JOB_ID"
+        export NCCL_DEBUG=INFO
+        export NCCL_ASYNC_ERROR_HANDLING=1
+    fi
 
     torchrun $distributed_args $repo/examples/multimodal/train.py \
         --apply-layernorm-1p \
@@ -601,6 +683,7 @@ task FineTuneModel
         --log-interval 10 \
         --eval-iters 10 \
         --eval-interval ${eval_interval} \
+        $([ ! -z "$online_eval_config" ] && echo "--online-evaluation-config ${online_eval_config}") \
         --tokenizer-type MultimodalTokenizer \
         --tokenizer-model ${tokenizer_model} \
         --tokenizer-prompt-format ${prompt_format} \
@@ -629,7 +712,7 @@ task FineTuneModel
         --dataloader-type external \
         --tensorboard-dir ${tensorboard} \
         --disable-vision-class-token \
-        --distributed-timeout-minutes 60 \
+        --distributed-timeout-minutes 10 \
         --ckpt-format torch
 }
 
@@ -646,6 +729,8 @@ task GenerateTestMMMU calls GenerateTestTask
     :: task=MMMU
     :: input_image_path=none
     :: gt_path=none
+    :: use_tag=@
+    :: tag="figure_qa"
     :: .submitter=@
     :: .C=$eval_C
     :: .account=$eval_account
@@ -666,6 +751,8 @@ task GenerateTestTextVQA calls GenerateTestTask
     :: task=TextVQA
     :: input_image_path=$textvqa_dir
     :: gt_path=$textvqa_gt_path
+    :: use_tag=@
+    :: tag="text_vqa"
     :: .submitter=@
     :: .C=$eval_C
     :: .account=$eval_account
@@ -686,6 +773,30 @@ task GenerateTestAI2D calls GenerateTestTask
     :: task=AI2D
     :: input_image_path=$ai2d_dir
     :: gt_path=$ai2d_gt_path
+    :: use_tag=@
+    :: tag="ai2d"
+    :: .submitter=@
+    :: .C=$eval_C
+    :: .account=$eval_account
+    :: .time=$eval_time
+    :: .cpus=$eval_cpus
+    :: .gres=$eval_gres
+
+task GenerateTestTranslation calls GenerateTestTask
+    < model_dir=$finetuned_dir@FineTuneModel
+    > outputs
+    :: repo=@
+    :: tokenizer_model=$model_name
+    :: model_type=@
+    :: prompt_format=@
+    :: image_preproc=@
+    :: pixel_shuffle=@
+    :: eval_bsz=@
+    :: task=Translation
+    :: input_image_path=none
+    :: gt_path=none
+    :: use_tag=@
+    :: tag="translation"
     :: .submitter=@
     :: .C=$eval_C
     :: .account=$eval_account
@@ -779,11 +890,46 @@ summary Evaluation {
 }
 
 plan TrainPipelineQwen25 {
-    reach EvaluateFinetunedModel via (TextModel: qwen2p5_7b)
+    #reach EvaluateFinetunedModel via (TextModel: qwen2p5_7b) * (DatasetVersion: *)
+    #reach EvaluateFinetunedModel via (TextModel: qwen2p5_7b) * (DatasetVersion: base) * (Epochs: 1 2)
+    #reach EvaluateFinetunedModel via (TextModel: qwen2p5_7b) * (DatasetVersion: notblocks) * (Epochs: 1 2 3)
+    #reach ConvertFinetunedModel via (TextModel: qwen2p5_7b) * (DatasetVersion: *)
+    #reach ConvertFinetunedModel via (TextModel: qwen2p5_7b) * (DatasetVersion: notblocks) * (Epochs: 3)
+    #reach EvaluateFinetunedModel via (TextModel: qwen2p5_7b) * (DatasetVersion: notblocks) * (Epochs: 3) * (FinetuneLR: 1em6 2em6 5em6 1em5)
+    #reach EvaluateFinetunedModel via (TextModel: qwen2p5_7b) * (DatasetVersion: v3) * (Epochs: 3) * (FinetuneLR: 2em6)
+    #reach EvaluateFinetunedModel via (TextModel: qwen2p5_7b) * (DatasetVersion: v4) * (Epochs: 1) * (FinetuneLR: 1em5)
+    #reach ConvertFinetunedModel via (TextModel: qwen2p5_7b) * (DatasetVersion: v4_tagged) * (Epochs: 1) * (FinetuneLR: 1em5)
+    #reach EvaluateFinetunedModel via (TextModel: qwen2p5_7b) * (DatasetVersion: v4_tagged) * (Epochs: 1) * (FinetuneLR: 1em5) * (UseEvalTag: false true)
+    #reach EvaluateFinetunedModel via (TextModel: qwen2p5_7b) * (DatasetVersion: v4_tagged) * (Epochs: 1) * (FinetuneLR: 1em5)
+    #reach EvaluateFinetunedModel via (TextModel: qwen2p5_7b) * (DatasetVersion: notblocks) * (Epochs: 3) * (FinetuneLR: 1em7) * (UnfreezeViT: true)
+    reach EvaluateFinetunedModel via (TextModel: qwen2p5_7b) * (DatasetVersion: v5) * (Epochs: 3) * (FinetuneLR: 1em5)
 }
+
+plan TrainPipeline14Bs {
+    #reach EvaluateFinetunedModel via (TextModel: qwen2p5_14b) * (DatasetVersion: v5) * (Epochs: 3) * (FinetuneLR: 5em6)
+    #reach EvaluateFinetunedModel via (TextModel: towerq_14b) * (DatasetVersion: v5) * (Epochs: 3) * (FinetuneLR: 5em6)
+    #reach ConvertFinetunedModel via (TextModel: towerq_14b) * (DatasetVersion: v5) * (Epochs: 3) * (FinetuneLR: 5em6)
+    #reach ConvertFinetunedModel via (TextModel: qwen2p5_14b) * (DatasetVersion: v5) * (Epochs: 3) * (FinetuneLR: 1em5)
+    #reach EvaluateFinetunedModel via (TextModel: towerq_14b) * (DatasetVersion: v5) * (Epochs: 3) * (FinetuneLR: 2em5)
+    reach GenerateTestTranslation via (TextModel: towerq_14b) * (DatasetVersion: v5) * (Epochs: 3) * (FinetuneLR: 5em6)
+}
+
+plan ConvertModels {
+    #reach ConvertFinetunedModel via (TextModel: qwen2p5_14b) * (DatasetVersion: v5) * (Epochs: 3) * (FinetuneLR: 1em5)
+    reach ConvertFinetunedModel via (TextModel: qwen2p5_7b) * (DatasetVersion: v5) * (Epochs: 3) * (FinetuneLR: 1em5)
+}
+
+#plan TrainPipelineTowerQ {
+#    reach PretrainModel via (TextModel: towerq_14b) * (DatasetVersion: v5) * (Epochs: 3) * (FinetuneLR: 5em6)
+#}
 
 plan TrainPipelineEuroLLM {
     reach EvaluateFinetunedModel via (TextModel: eurollm_9b)
+}
+
+plan TrainPipeline {
+    reach EvaluateFinetunedModel via (TextModel: qwen2p5_7b eurollm_9b)
+    reach ConvertFinetunedModel via (TextModel: qwen2p5_7b eurollm_9b)
 }
 
 # plan SweepTrainQwen25 {

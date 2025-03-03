@@ -37,9 +37,6 @@ class NVLM_D_ImageProcessor(BaseImageProcessor):
     """
 
     model_input_names = ["pixel_values"]
-    auto_map = {
-        "AutoImageProcessor": "image_processing_nvlm_d.NVLM_D_ImageProcessor",
-    }
 
     def __init__(
         self,

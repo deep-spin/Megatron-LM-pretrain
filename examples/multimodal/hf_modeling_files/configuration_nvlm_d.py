@@ -14,11 +14,6 @@ logger = logging.get_logger(__name__)
 class NVLM_D_Config(PretrainedConfig):
     model_type = 'NVLM_D'
     is_composition = True
-    auto_map = {
-        "AutoModel": "modeling_nvlm_d.NVLM_D_Model",
-        "AutoModelForCausalLM": "modeling_nvlm_d.NVLM_D_Model",
-        "AutoModelForConditionalGeneration": "modeling_nvlm_d.NVLM_D_Model",
-    }
 
     def __init__(
         self,

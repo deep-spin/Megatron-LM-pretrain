@@ -200,15 +200,24 @@ class TaskEncoder(DefaultTaskEncoder[OCRSample, OCRSample, ImageTaskBatch, dict]
 
         conversation = []
         # Note: Some tokenizers may ignore the system prompt.
-        conversation.append({"role": "system", "content": "Answer the questions."})
+        if has_image:
+            # TODO: remove default system prompt and let the sample/tokenizer deal with it
+            # for now, to not screw evaluation, we add a system prompt IF there is an image
+            conversation.append({"role": "system", "content": "Answer the questions."})
 
         has_image_token = False
 
         for text in sample.texts:
+            # HACK: some datasets are bugged and have ints in the value field
+            # so convert to string. remove in future version
+            text["value"] = str(text["value"])
+
             if IMAGE_TOKEN in text["value"]:
                 has_image_token = True
 
-            if text["from"] == "human":
+            if text["from"] == "system":
+                role = "system"
+            elif text["from"] == "human":
                 role = "user"
             elif text["from"] == "gpt":
                 role = "assistant"
@@ -218,6 +227,13 @@ class TaskEncoder(DefaultTaskEncoder[OCRSample, OCRSample, ImageTaskBatch, dict]
             turn = {"role": role, "content": text["value"]}
             conversation.append(turn)
 
+        # DEBUG: check if conversation only contains system message
+        if has_image and len(conversation) == 1 and conversation[0]["role"] == "system":
+            print("WARNING: conversation only contains system message")
+            print(f"sample: {sample}")
+            print(f"conversation: {conversation}")
+            raise ValueError("conversation only contains system message")
+
         # If the sample contains an image but none of the user messages has an image token,
         # then add it to the first user message.
         if len(imgs) > 0 and not has_image_token:
@@ -225,6 +241,10 @@ class TaskEncoder(DefaultTaskEncoder[OCRSample, OCRSample, ImageTaskBatch, dict]
                 if turn["role"] == "user":
                     turn["content"] = f"{IMAGE_TOKEN}\n" + turn["content"]
                     break
+        # if there are no images, make sure that the image token is not in the conversation
+        elif len(imgs) == 0:
+            for turn in conversation:
+                turn["content"] = turn["content"].replace(IMAGE_TOKEN, "<image_tag>")
 
         input_ids, target = self.tokenizer.tokenize_conversation(conversation, True, False)
 
@@ -296,6 +316,7 @@ class TaskEncoder(DefaultTaskEncoder[OCRSample, OCRSample, ImageTaskBatch, dict]
         else:
             raise NotImplementedError("Unsupported data type provided", sample)
 
+        # TODO: remove default system prompt and let the sample/tokenizer deal with it
         conversation = [
             {"role": "system", "content": "Answer the questions."},
             {"role": "user", "content": cur_prompt},
@@ -477,6 +498,7 @@ class TaskEncoder(DefaultTaskEncoder[OCRSample, OCRSample, ImageTaskBatch, dict]
             target=torch.from_numpy(target_mat),
         )
 
+        # there seems to be a bug where sometimes num_tiles
         return batch
 
     def encode_batch(self, batch: ImageTaskBatch) -> dict:
@@ -491,6 +513,7 @@ def print_error_handler(exc: Exception, key: Optional[str]):
         file=sys.stderr,
     )
     traceback.print_exc()
+    pass
 
 
 def format_multichoice_question(question, multichoice_options):

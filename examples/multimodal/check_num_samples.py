@@ -4,7 +4,9 @@ from megatron.energon import get_train_dataset, get_loader, WorkerConfig
 
 def read_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("dataset_path", type=str, required=True)
+    parser.add_argument("dataset_path", type=str)
+    parser.add_argument("--check-samples", action="store_true")
+    parser.add_argument("--test-encoder", action="store_true")
     return parser.parse_args()
 
 if __name__ == "__main__":
@@ -21,3 +23,7 @@ if __name__ == "__main__":
 
     # print number of samples
     print(f"Number of samples: {len(train_ds)}")
+    if args.check_samples:
+        simple_worker_config.worker_activate(0)
+        for sample in train_ds:
+            print(sample)

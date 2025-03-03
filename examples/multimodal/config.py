@@ -101,6 +101,20 @@ def get_language_model_config(config):
         config.apply_rope_fusion = False
         config.attention_softmax_in_fp32 = True
         config.ffn_hidden_size = 18944
+    elif config.language_model_type == "qwen2.5_14b":
+        config.activation_func = torch.nn.functional.silu
+        config.add_bias_linear = False
+        config.add_qkv_bias = True
+        config.bias_activation_fusion = False
+        config.gated_linear_unit = True
+        config.apply_query_key_layer_scaling = False
+        config.layernorm_zero_centered_gamma = (
+            False  # Zero centered gamma not supported for RMSNorm
+        )
+        config.bias_dropout_fusion = False
+        config.apply_rope_fusion = False
+        config.attention_softmax_in_fp32 = True
+        config.ffn_hidden_size = 13824
     elif config.language_model_type == "eurollm_9b":
         config.activation_func = torch.nn.functional.silu
         config.add_bias_linear = False
@@ -220,6 +234,9 @@ def get_vision_projection_config(config, hidden_size):
     elif config.language_model_type == "qwen2.5_7b":
         config.ffn_hidden_size = hidden_size # This was changed to make it compatible with HF's LLava
         config.activation_func = torch.nn.functional.gelu
+    elif config.language_model_type == "qwen2.5_14b":
+        config.ffn_hidden_size = hidden_size # This was changed to make it compatible with HF's LLava
+        config.activation_func = torch.nn.functional.gelu
     elif config.language_model_type == "eurollm_9b":
         config.ffn_hidden_size = hidden_size # This was changed to make it compatible with HF's LLava
         config.activation_func = torch.nn.functional.gelu
@@ -233,6 +250,8 @@ def get_vision_projection_config(config, hidden_size):
 class EvaluationConfig:
     """Evaluation related configuration."""
     task: str
+    use_tag: bool = False
+    tag: str = ""
 
     temperature: float = 1.0
     top_p: float = 0.0

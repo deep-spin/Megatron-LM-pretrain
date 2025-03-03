@@ -56,9 +56,6 @@ class NVLM_D_Processor(ProcessorMixin):
     attributes = ["image_processor", "tokenizer"]
     image_processor_class = "AutoImageProcessor"
     tokenizer_class = "AutoTokenizer"
-    auto_map = {
-        "AutoProcessor": "processing_nvlm_d.NVLM_D_Processor",
-    }
 
     def __init__(
         self,
@@ -77,6 +74,22 @@ class NVLM_D_Processor(ProcessorMixin):
         self.global_token = global_token
         self.image_context_token = image_context_token
         self.num_image_tokens = num_image_tokens
+        
+        # setup tiling variables
+        max_num_tiles = image_processor.max_num
+        assert image_processor.use_thumbnail, "use_thumbnail must be True"
+        # get image context id
+        self.context_token_id = self.tokenizer.convert_tokens_to_ids(self.image_context_token)
+        # define tile tags
+        self.tile_tags = [
+            self.tile_token_format.format(i) for i in range(1,max_num_tiles+1)
+        ]
+        self.tile_tags.append(self.global_token)
+        # and pre-tokenize them (each tag is multiple tokens)
+        self.tags_ids = [self.tokenizer(tag).input_ids for tag in self.tile_tags]
+        # assert that all tags have the same length (this is a sanity check, since the original megatron code also assumed this)
+        assert len(set(len(ids) for ids in self.tags_ids)) == 1, "All tags must have the same length"
+
     def __call__(
         self,
         images: ImageInput = None,
@@ -123,24 +136,44 @@ class NVLM_D_Processor(ProcessorMixin):
             processed_texts = []
             for txt in text:
                 if self.image_token in txt and num_patches > 0:
-                    # Generate tile tokens
-                    tile_tokens = []
-                    for i in range(1, num_patches):  # Start from 1 as per original code
-                        tile_tokens.append(self.tile_token_format.format(i))
-                    if num_patches > 1:  # Add global thumbnail token if we have multiple patches
-                        tile_tokens.append(self.global_token)
-                    
-                    # Create image token sequence
-                    image_token_sequence = ""
-                    for tile_token in tile_tokens:
-                        image_token_sequence += tile_token + self.image_context_token * self.num_image_tokens
-                    
                     # Replace <image> with the full sequence
-                    txt = txt.replace(self.image_token, f"<Image>{image_token_sequence}</Image>")
+                    txt = txt.replace(self.image_token, f"<Image>{self.image_context_token}</Image>", 1)
                 
                 processed_texts.append(txt)
 
-            text_inputs = self.tokenizer(processed_texts, **output_kwargs["text_kwargs"])
+            # pop return_tensors
+            text_kwargs = output_kwargs["text_kwargs"].copy()
+            return_tensors = text_kwargs.pop("return_tensors", None)
+
+            text_inputs = self.tokenizer(processed_texts, **text_kwargs)
+            
+            # HACK: there must be a better way
+            # We create the image_ids sequence by, for each tile
+            # (1) adding the tile_tag ids (2) adding the context_token_id * num_image_tokens times,
+            total_image_ids = []
+            for i in range(num_patches-1):
+                tile_tag_ids = self.tags_ids[i]
+                total_image_ids.extend(tile_tag_ids)
+                total_image_ids.extend([self.context_token_id] * self.num_image_tokens)
+            total_image_ids.extend(self.tags_ids[-1])
+            total_image_ids.extend([self.context_token_id] * self.num_image_tokens)
+            
+            # Replace the context token with the generated sequence in input_ids
+            for idx, input_seq in enumerate(text_inputs['input_ids']):
+                context_token_pos = input_seq.index(self.context_token_id)
+                # Remove the context token
+                input_seq.pop(context_token_pos)
+                # Insert the tile tags and padding sequence
+                text_inputs['input_ids'][idx] = (
+                    input_seq[:context_token_pos] + 
+                    total_image_ids + 
+                    input_seq[context_token_pos:]
+                )
+                # Update attention mask to include the new tokens
+                text_inputs['attention_mask'][idx] = [1] * len(text_inputs['input_ids'][idx])
+            
+            if return_tensors:
+                text_inputs = self.tokenizer.pad(text_inputs, return_tensors=return_tensors)
         else:
             text_inputs = {}
 

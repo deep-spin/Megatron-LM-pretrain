@@ -58,8 +58,15 @@ def add_text_generation_args(parser):
             "OCRBench",
             "MathVista",
             "AI2D",
+            "Translation",
         ],
         help="Generation task to run",
+    )
+    group.add_argument(
+        "--use-tag", action="store_true", help="Use tag for the evaluation dataset"
+    )
+    group.add_argument(
+        "--tag", type=str, default="", help="Tag to use for the evaluation dataset"
     )
     group.add_argument(
         "--num-samples-per-partition", type=int, default=0, help="Number of samples per partition"
@@ -159,11 +166,26 @@ def generate_samples(model, config: EvaluationConfig, print_output):
         imgs = imgs.to("cuda")
         num_tiles = num_tiles.to("cuda")
 
-        conv = get_conversation(config.task, question)
+        conv = get_conversation(config.task, question, config.tag if config.use_tag else None)
 
         forward_step = partial(VLMForwardStep, num_img_embeddings_per_tile, imgs, num_tiles, args.decoder_seq_length)
 
         if is_first_rank():
+            # DEBUG: dump the image tensors to files
+            # imgs_to_dump = imgs.detach().cpu().numpy()
+            # if isinstance(sample_id, torch.Tensor):
+            #     sample_id_to_dump = sample_id.item()
+            # else:
+            #    sample_id_to_dump = sample_id
+
+            #import os
+            #import pickle
+            #os.makedirs(f"imgs_dumped", exist_ok=True)
+
+            #with open(f"imgs_dumped/{sample_id_to_dump}.pkl", "wb") as f:
+            #    pickle.dump(imgs_to_dump, f)
+                
+            # ---
             resp_sentences, _, _, _ = generate_and_post_process(
                 model,
                 forward_step=forward_step,
@@ -259,6 +281,8 @@ def get_evaluation_config():
     else:
         config = EvaluationConfig(
             task=args.task,
+            use_tag=args.use_tag,
+            tag=args.tag,
             temperature=args.temperature,
             top_p=args.top_p,
             top_k=args.top_k,
@@ -400,9 +424,11 @@ class VLMForwardStep(ForwardStep):
         return logits
 
 
-def get_conversation(task, question):
+def get_conversation(task, question, tag=None):
     """Get a conversation for a given task and evaluation question."""
     conversation = []
+    if tag is not None:
+        question = f"{tag}: {question}"
 
     # In all cases, the tokenizer adds possible header tokens for the assistant.
     if task == "captioning":
@@ -447,6 +473,11 @@ def get_conversation(task, question):
             {"role": "system", "content": "Answer the questions."},
             {"role": "user", "content": f"<image>\n{question}"},
         ]
+    elif task == "Translation":
+        conversation = [
+            {"role": "user", "content": f"<image>\n{question}"},
+        ]
+
 
     return conversation
 

@@ -339,6 +339,19 @@ class LLaVAModel(MegatronModule):
             image_token_mask = input_ids == image_token_index
             num_images_per_sample = torch.sum(image_token_mask, dim=-1)
 
+            # DEBUG: Check if split would fail (sum of splits doesn't match tensor size)
+            split_sizes = num_images_per_sample.tolist()
+            split_sum = sum(split_sizes)
+            actual_size = num_image_tiles.shape[0] if num_image_tiles is not None else 0
+            if split_sum != actual_size:
+                print("\nDEBUG WARNING: Detected potential split failure!")
+                print(f"num_image_tiles: {num_image_tiles}")
+                print(f"num_image_tiles shape: {num_image_tiles.shape}")
+                
+                # Save input_ids for inspection
+                torch.save(input_ids.cpu(), "input_ids.pt")
+                raise ValueError(f"Split sizes sum to {split_sum} but tensor size is {actual_size}")
+
             # Number of tiles per sample.
             num_image_tiles_batch = num_image_tiles.split(num_images_per_sample.tolist(), dim=0)
             num_image_tiles_batch = torch.tensor(

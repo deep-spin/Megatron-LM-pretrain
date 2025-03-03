@@ -1,0 +1,10 @@
+task: "TextVQA"  # Since TextVQA is one of the main evaluation tasks used
+temperature: 1.0
+top_p: 0.0
+top_k: 1
+out_seq_length: 12
+input_image_path: "/lustre/fswork/projects/rech/qjm/ued79zb/text_vqa/train_images"  # From textvqa_dir
+gt_path: "/lustre/fswork/projects/rech/qjm/ued79zb/text_vqa/TextVQA_0.5.1_val.json"  # From textvqa_gt_path
+num_partitions: 0
+partition_id: 0
+num_samples_per_partition: 0

@@ -692,6 +692,71 @@ class AI2DDataset(torch.utils.data.Dataset):
             self._gt[idx]["answer"],
             metadata,
         )
+    
+class TranslationDataset(torch.utils.data.Dataset):
+    """Translation evaluation dataset."""
+
+    def __init__(
+        self,
+        gt_path,
+        num_samples_per_partition,
+        num_partitions,
+        partition_id,
+        dataset_name="google/wmt24pp",
+        lp="en-de_DE",
+        split="train",
+    ):
+        import datasets
+
+        hf_datasets_cache = os.environ["HF_DATASETS_CACHE"]
+        assert hf_datasets_cache != "", "Please set the environment variable HF_DATASETS_CACHE."
+
+        dataset = datasets.load_dataset(
+            dataset_name,
+            lp,
+            split=split,
+            cache_dir=hf_datasets_cache,
+        )
+        # Filter out bad sources
+        dataset = dataset.filter(lambda x: not x.get("is_bad_source", False))
+
+        if num_partitions > 0:
+            start_idx, end_idx = _get_partition_bounds(
+                len(dataset), num_samples_per_partition, num_partitions, partition_id
+            )
+            dataset = dataset[start_idx:end_idx]
+
+        self._dataset = dataset
+        # filter bad source
+        # TODO: hard-coded for now
+        self._src_lang = "English"
+        self._tgt_lang = "German"
+
+    def __len__(self):
+        return len(self._dataset)
+
+    def __getitem__(self, idx):
+        sample = self._dataset[idx]
+        
+        # For compatibility with image datasets, we return:
+        # - Empty tensor for images (0 tiles)
+        # - Empty tile count
+        # - Sample ID
+        # - Source text as question
+        # - Target text as answer
+        # - Optional metadata
+        empty_imgs = torch.zeros((0, 3, 224, 224))  # Adjust dimensions as needed
+        tile_count = torch.tensor([0], dtype=torch.int)
+        metadata = {"task": "translation", "src_lang": self._src_lang, "tgt_lang": self._tgt_lang}
+
+        return (
+            empty_imgs,
+            tile_count,
+            idx,
+            sample["source"],
+            sample["target"],
+            metadata,
+        )
 
 
 def get_evaluation_dataset(
@@ -858,6 +923,14 @@ def get_evaluation_dataset(
             no_mask=False,
             vision_model_type=vision_model_type,
         )
+    elif task == "Translation":
+        dataset = TranslationDataset(
+            gt_path,
+            num_samples_per_partition,
+            num_partitions,
+            partition_id,
+        )
+
     else:
         raise NotImplementedError(f"unsupported task {task}")
 

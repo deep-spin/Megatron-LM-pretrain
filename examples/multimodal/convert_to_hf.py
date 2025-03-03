@@ -224,10 +224,10 @@ def convert_mcore2hf(args):
     # we re-shorten them to the original vocab size
     # and then extend them again after loading the weights
     if (
-        args.hf_model_type == "llava"
-        and hf_state_dict["language_model.model.embed_tokens.weight"].size(0)
+        hf_state_dict["language_model.model.embed_tokens.weight"].size(0)
         != hf_config.text_config.vocab_size
     ):
+        print(f"> Shortening embeddings to {hf_config.text_config.vocab_size}")
         # shorten the embeddings and output layer
         hf_state_dict["language_model.model.embed_tokens.weight"] = hf_state_dict[
             "language_model.model.embed_tokens.weight"
@@ -244,29 +244,22 @@ def convert_mcore2hf(args):
         extend_embeddings(hf_model, hf_config)
 
     print(f"> Saving HF model to {args.hf_save_dir}")
-    hf_model.save_pretrained(args.hf_save_dir)
-    if args.upload_to_hub is not None:
-        # TODO: still need to add the auto-map to the config files
-        # push everything to the hub
-        hf_model.push_to_hub(args.upload_to_hub, private=True)
-        processor.push_to_hub(args.upload_to_hub)
-        if args.hf_model_type == "nvlm_d":
-            # push the hf_modeling_files folder to the hub
-            pi = HfApi()
-            # get directory of the current script
-            script_dir = os.path.dirname(os.path.abspath(__file__))
-            modeling_files_dir = f"{script_dir}/hf_modeling_files"
-            for file in os.listdir(modeling_files_dir):
-                # only send .py files
-                if not file.endswith(".py"):
-                    continue
-
-                pi.upload_file(
-                    path_or_fileobj=f"{modeling_files_dir}/{file}",
-                    repo_id=args.upload_to_hub,
-                    path_in_repo=file,
-                    repo_type="model",
-                )
+    hf_config.register_for_auto_class()
+    hf_model.register_for_auto_class()
+    processor.register_for_auto_class()
+    processor.image_processor.register_for_auto_class()
+    hf_model.save_pretrained(
+        args.hf_save_dir, 
+        push_to_hub=args.upload_to_hub is not None,
+        repo_id=args.upload_to_hub,
+        private=True,
+    )
+    processor.save_pretrained(
+        args.hf_save_dir, 
+        push_to_hub=args.upload_to_hub is not None,
+        repo_id=args.upload_to_hub,
+        private=True,
+    )
 
 
 def create_hf_config(
@@ -323,7 +316,13 @@ def create_hf_processor(hf_config, text_model_id, vision_model_id, hf_model_type
 
         image_processor = NVLM_D_ImageProcessor()
         tokenizer = AutoTokenizer.from_pretrained(text_model_id)
-        processor = NVLM_D_Processor(image_processor=image_processor, tokenizer=tokenizer)
+        # TODO: remove this hard-coding, very messy
+        if "eurollm" in text_model_id:
+            kwargs = {"global_token": "<tile_global>"}
+        else:
+            kwargs = {}
+
+        processor = NVLM_D_Processor(image_processor=image_processor, tokenizer=tokenizer, **kwargs)
         return processor
 
     tokenizer = AutoTokenizer.from_pretrained(text_model_id)
