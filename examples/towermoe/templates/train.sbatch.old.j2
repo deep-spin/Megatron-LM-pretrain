@@ -5,6 +5,7 @@
 #SBATCH --nodes={{ launch.num_nodes }}
 #SBATCH --ntasks-per-node=1
 #SBATCH --gpus-per-node={{ launch.gpus_per_node }}
+#SBATCH --cpus-per-task={{ launch.cpus_per_node }}
 {%- if 'time' in launch and launch.time %}
 #SBATCH --time={{ launch.time }}
 {%- endif -%}
@@ -193,7 +194,11 @@ MOE_ARGS="\
     --moe-z-loss-coeff {{ moe.moe_z_loss_coeff }} \
     {%- endif %}
     --moe-grouped-gemm \
-    --moe-token-dispatcher-type alltoall"
+    --moe-token-dispatcher-type alltoall \
+    {%- if moe.moe_aux_loss_reduce_token_counts %}
+    --moe-aux-loss-reduce-token-counts \
+    {%- endif %}
+    "
 
 SRUN_ARGS="\
     --nodes={{ launch.num_nodes }} \
@@ -217,18 +222,6 @@ cd {{ megatron_dir }}
 
 export CUDA_DEVICE_MAX_CONNECTIONS=1
 export OMP_NUM_THREADS=$((CPUS_PER_GPU * 2))
-
-# NCCL Env Vars
-export UCX_RC_TIMEOUT=900s
-export UCX_UD_TIMEOUT=900s
-export UCX_DC_TIMEOUT=900s
-export NCCL_SOCKET_IFNAME=ib0
-export NCCL_IB_SL=1
-export UCX_IB_SL=1
-export NVSHMEM_IB_SL=1
-export NVSHMEM_DISABLE_NCCL=1
-export UCX_MEMTYPE_CACHE=n
-#export TORCH_NCCL_BLOCKING_WAIT=1
 
 export NCCL_DEBUG="WARN"
 

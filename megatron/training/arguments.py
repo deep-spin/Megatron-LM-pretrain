@@ -1901,6 +1901,8 @@ def _add_moe_args(parser):
                        help='When there are multiple experts per rank, launch multiple local GEMM kernels in multiple streams to improve the utilization and performance with GroupedLinear in TransformerEngine.')
     group.add_argument('--moe-aux-loss-coeff', type=float, default=0.0,
                        help='Scaling coefficient for the aux loss: a starting value of 1e-2 is recommended.')
+    group.add_argument('--moe-aux-loss-reduce-token-counts', action='store_true',
+                       help='Reduce the expert-token counts across dp ranks before the aux loss computation. This obtains better estimates of expert usage at the cost of extra synchronization.')
     group.add_argument('--moe-z-loss-coeff', type=float, default=None,
                        help='Scaling coefficient for the z-loss: a starting value of 1e-3 is recommended.')
     group.add_argument('--moe-input-jitter-eps', type=float, default=None,

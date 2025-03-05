@@ -6,6 +6,8 @@ import torch
 
 from megatron.core import parallel_state
 
+from typing import Optional
+
 
 def switch_load_balancing_loss_func(
     probs: torch.Tensor,
@@ -13,6 +15,8 @@ def switch_load_balancing_loss_func(
     topk: int,
     moe_aux_loss_coeff: float,
     sequence_partition_group=None,
+    reduce_token_counts: bool = False,
+    batch_tokens_per_expert: Optional[torch.Tensor] = None,
 ):
     """Calculate the auxiliary loss for load balancing.
     Refer to the Switch Transformer paper (https://arxiv.org/abs/2101.03961) for details.
@@ -27,6 +31,10 @@ def switch_load_balancing_loss_func(
         sequence_partition_group (optional): The parallel group over which the sequence is
                                              partitioned. If None, no partitioning is applied.
                                              Defaults to None.
+        reduce_token_counts (bool, optional): Whether to reduce expert-token counts across the
+                                              microbatches before calculating the auxiliary loss, 
+                                              as proposed in https://arxiv.org/abs/2501.11873. 
+                                              Defaults to False.
 
     Returns:
         torch.Tensor: The auxiliary loss for load balancing.
@@ -42,6 +50,16 @@ def switch_load_balancing_loss_func(
         num_sub_sequence = torch.distributed.get_world_size(sequence_partition_group)
         torch.distributed.all_reduce(tokens_per_expert, group=sequence_partition_group)
 
+    load_tokens_per_expert = tokens_per_expert
+
+    if reduce_token_counts:
+        torch.distributed.all_reduce(
+            tokens_per_expert, op=torch.distributed.ReduceOp.SUM, group=parallel_state.get_data_parallel_group(),
+        )
+        batch_tokens_per_expert.add_(tokens_per_expert)
+
+        load_tokens_per_expert = batch_tokens_per_expert
+
     num_tokens = probs.shape[0] * num_sub_sequence
     num_experts = probs.shape[1]
 
@@ -49,7 +67,7 @@ def switch_load_balancing_loss_func(
     # (tokens_per_expert/(num_tokens*topk))) * num_experts * moe_aux_loss_coeff.
     # This can be simplified to fuse the division and multiplication operations.
     aggregated_probs_per_expert = probs.sum(dim=0)
-    aux_loss = torch.sum(aggregated_probs_per_expert * tokens_per_expert) * (
+    aux_loss = torch.sum(aggregated_probs_per_expert * load_tokens_per_expert) * (
         num_experts * moe_aux_loss_coeff / (num_tokens * num_tokens * topk)
     )
     return aux_loss

@@ -1,0 +1,50 @@
+launch:
+    job_name: "reduce_counts_false_scratch"
+    run_dir: ./local/runs/reduce_counts_scratch/false/
+    num_nodes: 1
+    gpus_per_node: 2
+    exclusive: False
+network_size:
+    num_layers: 24
+    hidden_size: 1024
+    ffn_hidden_size: 512
+    num_attention_heads: 8
+    num_query_groups: 2
+    max_position_embeddings: 4096
+moe:
+    num_experts: 64
+    expert_model_parallel_size: 1
+    moe_router_topk: 8
+    moe_aux_loss_reduce_token_counts: False
+logging:
+    log_params_norm: True
+    log_throughput: True
+    log_progress: True
+regularization:
+    weight_decay: 0.1
+training:
+    micro_batch_size: 4
+    global_batch_size: 128
+learning_rate:
+    lr: 3e-4
+    lr_decay_style: constant
+    lr_warmup_iters: 1192
+checkpointing:
+    save: ./${launch.run_dir}/checkpoints/
+    save_interval: 1000
+    load: ${checkpointing.save}
+    annealing: False
+validation:
+    eval_interval: 1000
+    eval_iters: 10
+distributed:
+    tensor_model_parallel_size: 1
+    pipeline_model_parallel_size: 1
+    distributed_optimizer: true
+data:
+    seq_length: ${network_size.max_position_embeddings}
+    data_path:
+        - 52 ./local/data/Dataset.en_wiki/data_bin/data_text_document
+    tokenizer_type: PretrainedFromHF
+    tokenizer_model: ./local/tokenizers/eurollm-tokenizer
+    train_iters: 10000

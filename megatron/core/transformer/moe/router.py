@@ -20,6 +20,7 @@ from megatron.core.transformer.moe.moe_utils import (
     z_loss_func,
 )
 from megatron.core.transformer.transformer_config import TransformerConfig
+from megatron.core.num_microbatches_calculator import MicroBatchTracker
 
 
 class Router(ABC, MegatronModule):
@@ -107,6 +108,16 @@ class TopKRouter(Router):
         self.topk = self.config.moe_router_topk
         self.routing_type = self.config.moe_router_load_balancing_type
         self.input_jitter = None
+        self.microbatch_tracker = None
+
+        if self.config.moe_aux_loss_reduce_token_counts:
+            self.microbatch_tracker = MicroBatchTracker()
+            self.register_buffer(
+                "token_counts",
+                torch.zeros((self.num_experts,), dtype=torch.int64),
+                persistent=False,
+            )
+            self.register_forward_pre_hook(self._prepare_token_counts_buffer)
 
     def sinkhorn_load_balancing(self, logits: torch.Tensor):
         """Apply sinkhorn routing to the logits tensor.
@@ -191,12 +202,24 @@ class TopKRouter(Router):
         else:
             sequence_partition_group = parallel_state.get_tensor_and_context_parallel_group()
 
+        # Ensure that the batch_tokens_per_expert is on the same device as the num_local_tokens_per_expert
+        # if (
+        #     self.batch_tokens_per_expert is not None and
+        #     self.batch_tokens_per_expert.device != num_local_tokens_per_expert.device
+        # ):
+        #     self.batch_tokens_per_expert = self.batch_tokens_per_expert.to(num_local_tokens_per_expert.device)
+        token_counts = None
+        if self.config.moe_aux_loss_reduce_token_counts:
+            token_counts = self.token_counts
+
         aux_loss = switch_load_balancing_loss_func(
             probs,
             num_local_tokens_per_expert,
             self.topk,
             moe_aux_loss_coeff,
             sequence_partition_group=sequence_partition_group,
+            reduce_token_counts=self.config.moe_aux_loss_reduce_token_counts,
+            batch_tokens_per_expert=token_counts,
         )
         save_to_aux_losses_tracker(
             "load_balancing_loss",
@@ -305,5 +328,12 @@ class TopKRouter(Router):
         logits = logits.view(-1, self.config.num_moe_experts)
 
         scores, indices = self.routing(logits)
+        # Skip counter update for eval and activation checkpointing
+        if self.microbatch_tracker is not None and torch.is_grad_enabled() and self.training:
+            self.microbatch_tracker.next()
 
         return scores, indices
+
+    def _prepare_token_counts_buffer(self, *_):
+        if self.microbatch_tracker.is_first_microbatch():
+            self.token_counts.zero_()

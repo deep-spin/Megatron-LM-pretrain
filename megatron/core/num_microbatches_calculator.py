@@ -506,3 +506,26 @@ class RampupBatchsizeNumMicroBatchesCalculator(NumMicroBatchesCalculator):
         self.num_micro_batches = (
             self.current_running_global_batch_size // self.micro_batch_times_data_parallel_size
         )
+
+
+class MicroBatchTracker:
+    """Tracks which microbatch is currently being processed.
+    
+    This is inspired by the logic in the main ParallelTransformer class in Megatron-LM.
+    """
+
+    def __init__(self):
+        # These will be used to track whether we are in the first microbatch of a step
+        # Taken from ParallelTransformer implementation
+        self.num_microbatches_in_previous_step = -1
+        self.microbatch_count = 0
+
+    def is_first_microbatch(self):
+        # Determine if the current iteration is first microbatch
+        if self.num_microbatches_in_previous_step != get_num_microbatches():
+            self.microbatch_count = 0 # Reset count on new batch size rampup interval
+        self.num_microbatches_in_previous_step = get_num_microbatches()
+        return self.microbatch_count % get_num_microbatches() == 0
+
+    def next(self):
+        self.microbatch_count += 1

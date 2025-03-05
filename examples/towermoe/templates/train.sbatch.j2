@@ -21,7 +21,6 @@
 {%- if launch.exclusive %}
 #SBATCH --exclusive
 {%- endif %}
-#SBATCH -x lrdn[0001-0180]
 #SBATCH -x lrdn[0421-3456]
 
 set -euo pipefail
@@ -198,7 +197,11 @@ MOE_ARGS="\
     --moe-z-loss-coeff {{ moe.moe_z_loss_coeff }} \
     {%- endif %}
     --moe-grouped-gemm \
-    --moe-token-dispatcher-type alltoall"
+    --moe-token-dispatcher-type alltoall \
+    {%- if moe.moe_aux_loss_reduce_token_counts %}
+    --moe-aux-loss-reduce-token-counts \
+    {%- endif %}
+    "
 
 SRUN_ARGS="\
     --nodes={{ launch.num_nodes }} \

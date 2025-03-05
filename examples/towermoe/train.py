@@ -101,6 +101,7 @@ class MoEArgs:
     expert_model_parallel_size: int = 1
     moe_aux_loss_coeff: float = 0.01
     moe_z_loss_coeff: float = 0.001
+    moe_aux_loss_reduce_token_counts: bool = False
 
 
 @dataclasses.dataclass(frozen=True)
@@ -166,7 +167,7 @@ def main(
         loader=jinja2.FileSystemLoader(templates_dir),
         undefined=jinja2.StrictUndefined,
     )
-    script = "train.sbatch"
+    script = "train.sbatch.old"
     template = jinja_env.get_template(f"{script}.j2")
 
     run_dir = os.path.abspath(launch.run_dir)
