@@ -28,6 +28,7 @@ from megatron.core.dist_checkpointing.strategies.fully_parallel import \
     FullyParallelSaveStrategyWrapper, FullyParallelLoadStrategyWrapper
 from megatron.core.num_microbatches_calculator import update_num_microbatches
 from megatron.core.utils import is_float8tensor
+from megatron.core.rerun_state_machine import get_rerun_state_machine
 from .async_utils import schedule_async_save
 from .global_vars import get_args, get_one_logger
 from .utils import unwrap_model, print_rank_0, append_to_progress_log, is_last_rank
@@ -360,6 +361,12 @@ def save_checkpoint(iteration, model, optimizer, opt_param_scheduler, num_floati
     # Collect rng state across data parallel ranks.
     rng_state = get_rng_state(ckpt_type != CheckpointType.LEGACY)
 
+    # Collect rerun state across all ranks
+    rerun_state_machine = get_rerun_state_machine()
+    rerun_state = rerun_state_machine.state_dict(
+        data_iterator=train_data_iterator, use_dist_ckpt=ckpt_type != CheckpointType.LEGACY
+    )
+
     # Checkpoint name.
     return_base_dir = (ckpt_type != CheckpointType.LEGACY)
     checkpoint_name = get_checkpoint_name(save_dir, iteration, release=False, pipeline_parallel=pipeline_parallel,
@@ -405,9 +412,10 @@ def save_checkpoint(iteration, model, optimizer, opt_param_scheduler, num_floati
             optimizer,
             opt_param_scheduler,
             rng_state,
-            ckpt_type != CheckpointType.LEGACY,
-            iteration,
+            use_dist_ckpt=ckpt_type != CheckpointType.LEGACY,
+            iteration=iteration,
             optim_sd_kwargs=optim_sd_kwargs,
+            rerun_state=rerun_state,
         )
 
         if args.enable_ft_package and ft_client is not None:
@@ -481,8 +489,9 @@ def save_checkpoint(iteration, model, optimizer, opt_param_scheduler, num_floati
             def iter_finalize_fn():
                 with open(tracker_filename, 'w') as f:
                     f.write(str(iteration))
-                print_rank_0('  successfully saved checkpoint from iteration {:7d} to {}'
-                             .format(iteration, args.save))
+                print_rank_0(f'  successfully saved checkpoint from iteration {int(iteration):7d} to {args.save} '
+                             f'[ t {(tensor_rank if tensor_rank is not None else mpu.get_tensor_model_parallel_rank()) + 1}/{mpu.get_tensor_model_parallel_world_size()}, '
+                             f'p {(pipeline_rank if pipeline_rank is not None else mpu.get_pipeline_model_parallel_rank()) + 1}/{mpu.get_pipeline_model_parallel_world_size()} ]')
                 if args.log_progress and args.async_save:
                     append_to_progress_log(f'Saved async checkpoint\tIteration: {iteration}',
                                            barrier=False)
@@ -590,7 +599,7 @@ def save_dataloader_state(train_iterator, iteration, dataloader_save_path):
 
 def generate_state_dict(args, model, optimizer, opt_param_scheduler,
                         rng_state, use_dist_ckpt=False, iteration=None,
-                        optim_sd_kwargs=None):
+                        optim_sd_kwargs=None, rerun_state=None):
     # Arguments, iteration, and model.
     state_dict = {}
     state_dict['args'] = args
@@ -618,6 +627,10 @@ def generate_state_dict(args, model, optimizer, opt_param_scheduler,
         if opt_param_scheduler is not None:
             state_dict['opt_param_scheduler'] = \
                 opt_param_scheduler.state_dict()
+
+    # Rerun state
+    state_dict['rerun_state_machine'] = rerun_state
+
     # RNG states.
     if not args.no_save_rng:
         state_dict["rng_state"] = rng_state
@@ -977,6 +990,8 @@ def load_args_from_checkpoint(
     _set_arg('hybrid_mlp_ratio', force=True)
 
     _set_arg('num_experts', force=True)
+    _set_arg('moe_layer_freq', force=True)
+    _set_arg('moe_ffn_hidden_size', force=True)
     _set_arg('moe_router_topk', force=True)
     _set_arg('moe_token_dispatcher_type', force=True)
     _set_arg('moe_router_pre_softmax', force=True)
@@ -1124,6 +1139,17 @@ def load_checkpoint(model, optimizer, opt_param_scheduler, load_arg='load', stri
                 gen_sd_optim = None
                 gen_sd_opt_param_scheduler = None
 
+            # Determine if rerun state will be loaded
+            if (ckpt_tp_pp == run_tp_pp and not release and not args.finetune):
+                rerun_state_machine = get_rerun_state_machine()
+                gen_sd_rerun_state = rerun_state_machine.state_dict(
+                    data_iterator=None, use_dist_ckpt=True
+                )
+            else:
+                gen_sd_rerun_state = None
+                if ckpt_tp_pp != run_tp_pp:
+                    print_rank_0("{}: Rerun state will be ignored".format(mismatch_msg))
+
             # [ModelOpt]: Initial loading from non-resume sharded checkpoint to a Distillation Model
             # will result in key mismatch with loss modules potentially containing parameters, since
             # it requires generating a state_dict before loading. Here we hide those modules if present.
@@ -1131,9 +1157,11 @@ def load_checkpoint(model, optimizer, opt_param_scheduler, load_arg='load', stri
                 if args.finetune and hasattr(model[0], "hide_loss_modules"):
                     for m in model:
                         stack.enter_context(m.hide_loss_modules())
-                load_kwargs['sharded_state_dict'] = generate_state_dict(args, model, gen_sd_optim, gen_sd_opt_param_scheduler,
-                                                                        gen_sd_rng_state, True, optim_sd_kwargs=optim_sd_kwargs)
-
+                load_kwargs['sharded_state_dict'] = generate_state_dict(
+                    args, model, gen_sd_optim, gen_sd_opt_param_scheduler, gen_sd_rng_state,
+                    use_dist_ckpt=True, optim_sd_kwargs=optim_sd_kwargs, rerun_state=gen_sd_rerun_state
+                )
+                                                                        
             # When "--fp8-param-gather" is disabled, this function doesn't modify anything.
             fix_fp8_params_lose_precision_when_loading_dist_ckpt(load_kwargs['sharded_state_dict'])
 
@@ -1251,6 +1279,14 @@ def load_checkpoint(model, optimizer, opt_param_scheduler, load_arg='load', stri
         if (args.fp16 or args.bf16) and optimizer is not None:
             optimizer.reload_model_params()
 
+    # rerun state
+    try:
+        if 'rerun_state_machine' in state_dict:
+            get_rerun_state_machine().load_state_dict(state_dict['rerun_state_machine'])
+    except Exception as e:
+        print(f"Unable to restore RerunMachine from checkpoint: {e}")
+        sys.exit()
+
     # rng states.
     if not release and not args.finetune and not args.no_load_rng:
         try:
@@ -1291,8 +1327,8 @@ def load_checkpoint(model, optimizer, opt_param_scheduler, load_arg='load', stri
         torch.distributed.barrier()
 
     print_rank_0(f'  successfully loaded checkpoint from {load_dir} '
-                 f'[ t {mpu.get_tensor_model_parallel_rank()}, '
-                 f'p {mpu.get_pipeline_model_parallel_rank()} ] '
+                 f'[ t {mpu.get_tensor_model_parallel_rank() + 1}/{mpu.get_tensor_model_parallel_world_size()}, '
+                 f'p {mpu.get_pipeline_model_parallel_rank() + 1}/{mpu.get_pipeline_model_parallel_world_size()} ] '
                  f'at iteration {iteration}')
 
     torch.cuda.empty_cache()

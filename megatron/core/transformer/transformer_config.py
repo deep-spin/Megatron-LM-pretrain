@@ -247,6 +247,16 @@ class TransformerConfig(ModelParallelConfig):
     """Enable overlapping between shared expert computations and dispatcher communications.
     Without this, the shared epxerts execute after the routed experts."""
 
+    moe_layer_freq: int = 1
+    """Frequency between MoE layers and Dense layers. Accepts either:
+    - An integer N: Represents a 1:N ratio, meaning one expert layer for every N-1 dense layers.
+    - A string containing a Python list expression that defines a custom pattern, e.g.:
+    "([1]*3+[0]*1)*3" evaluates to [1,1,1,0,1,1,1,0,1,1,1,0]
+    where 1 indicates an expert layer and 0 indicates a dense layer."""
+
+    moe_ffn_hidden_size: int = None
+    """MoE Feed-Forward Network hidden size"""
+
     moe_router_load_balancing_type: str = "aux_loss"
     """Determines the load balancing strategy for the router. "aux_loss" corresponds to the load
     balancing loss used in GShard and SwitchTransformer, "sinkhorn" corresponds to the balancing
@@ -386,6 +396,9 @@ class TransformerConfig(ModelParallelConfig):
         if self.num_moe_experts is not None and self.num_moe_experts <= 0:
             raise ValueError('num_moe_experts must be non-negative.')
 
+        if self.moe_ffn_hidden_size is None:
+            self.moe_ffn_hidden_size = self.ffn_hidden_size
+
         if self.moe_shared_expert_intermediate_size is not None:
             if self.moe_shared_expert_intermediate_size <= 0:
                 raise ValueError(
@@ -508,9 +521,12 @@ class TransformerConfig(ModelParallelConfig):
             if self.rotary_interleaved:
                 raise ValueError("rotary_interleaved does not work with apply_rope_fusion.")
 
-            from megatron.core.models.common.embeddings.rope_utils import HAVE_APPLY_ROPE_FUSION
+            from megatron.core.models.common.embeddings.rope_utils import (
+                fused_apply_rotary_pos_emb,
+                fused_apply_rotary_pos_emb_thd,
+            )
 
-            if not HAVE_APPLY_ROPE_FUSION:
+            if fused_apply_rotary_pos_emb is None and fused_apply_rotary_pos_emb_thd is None:
                 raise ValueError(
                     "apply_rope_fusion is not available. Please install TE >= 1.4 or Apex."
                 )

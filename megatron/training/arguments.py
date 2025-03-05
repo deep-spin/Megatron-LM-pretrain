@@ -55,6 +55,7 @@ def parse_args(extra_args_provider=None, ignore_unknown_args=False):
     parser = _add_one_logger_args(parser)
     parser = _add_ft_package_args(parser)
     parser = _add_config_logger_args(parser)
+    parser = _add_rerun_machine_args(parser)
 
     # Custom arguments.
     if extra_args_provider is not None:
@@ -155,6 +156,32 @@ def load_retro_args(args):
     args.retro_bert_tokenizer_type = retro_config.retro_bert_tokenizer_type
     args.retro_bert_vocab_file = retro_config.retro_bert_vocab_file
 
+def moe_freq_type(x):
+    """Frequency between MoE layers and Dense layers.
+
+    Accepts either:
+    - An integer N: Represents a 1:N ratio, meaning one expert layer for every N-1 dense layers
+    - A string "N": Same as above, but provided as a string
+    - A string containing a Python list expression that defines a custom pattern, e.g.:
+      "([1]*3+[0]*1)*3" evaluates to [1,1,1,0,1,1,1,0,1,1,1,0]
+      where 1 indicates an expert layer and 0 indicates a dense layer.
+      This allows defining arbitrary patterns of expert and dense layers.
+      The pattern length must match the total number of transformer layers.
+      Examples:
+          "([0]+[1]*23)": 1 dense layer followed by 23 experts layers
+          "([1]*3+[0]*2)*2": Three expert layers followed by two dense layers, repeated twice.
+    """
+    if isinstance(x, int):
+        return x
+    assert isinstance(x, str)
+    if '[' in x:
+        # it's a custom pattern
+        pattern = eval(x)
+        return pattern
+    else:
+        # it's a single int but in str
+        return int(x)
+
 
 def validate_args(args, defaults={}):
 
@@ -198,7 +225,6 @@ def validate_args(args, defaults={}):
 
     args.data_parallel_size = args.world_size // total_model_size
 
-    # Checks.
     if args.rank == 0:
         print('using world size: {}, data-parallel size: {}, '
               'context-parallel size: {}, '
@@ -215,7 +241,9 @@ def validate_args(args, defaults={}):
                   args.pipeline_model_parallel_size,
                   args.encoder_pipeline_model_parallel_size), flush=True)
 
-    # backwards compatibility.
+    # Checks.
+
+    # Backwards compatibility.
     if args.pipeline_model_parallel_split_rank is not None:
         args.encoder_pipeline_model_parallel_size = args.pipeline_model_parallel_split_rank
         args.pipeline_model_parallel_size -= args.encoder_pipeline_model_parallel_size
@@ -231,7 +259,7 @@ def validate_args(args, defaults={}):
     if args.expert_tensor_parallel_size is None:
         args.expert_tensor_parallel_size = args.tensor_model_parallel_size
 
-    # Deprecated arguments
+    # Deprecated arguments.
     assert args.batch_size is None, '--batch-size argument is no longer ' \
         'valid, use --micro-batch-size instead'
     del args.batch_size
@@ -274,6 +302,20 @@ def validate_args(args, defaults={}):
                   f'of "{legacy_default_split_value}"')
         args.split = legacy_default_split_value
 
+    use_data_path = (args.data_path is not None) or (args.data_args_path is not None)
+    if use_data_path:
+        # Exactly one of the two has to be None if we use it.
+        assert (args.data_path is None) or (args.data_args_path is None)
+    use_per_split_data_path = any(
+        elt is not None
+        for elt in [args.train_data_path, args.valid_data_path, args.test_data_path]) or \
+            args.per_split_data_args_path is not None
+    if use_per_split_data_path:
+         # Exactly one of the two has to be None if we use it.
+        assert any(elt is not None
+                   for elt in [args.train_data_path, args.valid_data_path, args.test_data_path]) is False or \
+            args.per_split_data_args_path is None
+
     # Batch size.
     assert args.micro_batch_size is not None
     assert args.micro_batch_size > 0
@@ -283,21 +325,29 @@ def validate_args(args, defaults={}):
             print('setting global batch size to {}'.format(
                 args.global_batch_size), flush=True)
     assert args.global_batch_size > 0
+    if args.decoder_first_pipeline_num_layers is None and args.decoder_last_pipeline_num_layers is None:
+        # Divisibility check not applicable for T5 models which specify encoder_num_layers
+        # and decoder_num_layers.
+        if args.num_layers is not None:
+            assert args.num_layers % args.transformer_pipeline_model_parallel_size == 0, \
+                'Number of layers should be divisible by the pipeline-model-parallel size'
     if args.num_layers_per_virtual_pipeline_stage is not None:
         if args.overlap_p2p_comm:
             assert args.pipeline_model_parallel_size > 1, \
-                'when interleaved schedule is used, pipeline-model-parallel size '\
+                'When interleaved schedule is used, pipeline-model-parallel size '\
                 'should be greater than 1'
         else:
             assert args.pipeline_model_parallel_size > 2, \
-                'when interleaved schedule is used and p2p communication overlap is disabled, '\
+                'When interleaved schedule is used and p2p communication overlap is disabled, '\
                 'pipeline-model-parallel size should be greater than 2 to avoid having multiple '\
                 'p2p sends and recvs between same 2 ranks per communication batch'
+        assert args.num_layers is not None
+        # Double check divisibility check here since check above is if guarded.
         assert args.num_layers % args.transformer_pipeline_model_parallel_size == 0, \
-            'number of layers should be divisible by the pipeline parallel size'
+            'Number of layers should be divisible by the pipeline-model-parallel size'
         num_layers_per_pipeline_stage = args.num_layers // args.transformer_pipeline_model_parallel_size
         assert num_layers_per_pipeline_stage % args.num_layers_per_virtual_pipeline_stage == 0, \
-            'number of layers per pipeline stage must be divisible number of layers per virtual pipeline stage'
+            'Number of layers per pipeline stage must be divisible by number of layers per virtual pipeline stage'
         args.virtual_pipeline_model_parallel_size = num_layers_per_pipeline_stage // \
             args.num_layers_per_virtual_pipeline_stage
     else:
@@ -565,6 +615,10 @@ def validate_args(args, defaults={}):
     if not args.add_bias_linear:
         args.bias_gelu_fusion = False
 
+    # Keep the 'add bias' args in sync; add_qkv_bias is more targeted.
+    if args.add_bias_linear:
+        args.add_qkv_bias = True
+
     # Retro checks.
     if args.retro_add_retriever:
 
@@ -604,6 +658,9 @@ def validate_args(args, defaults={}):
         args.num_experts = None
     if args.num_experts is not None:
         assert args.spec is None, "Model Spec must be None when using MoEs"
+    
+    if args.moe_ffn_hidden_size is None:
+        args.moe_ffn_hidden_size = args.ffn_hidden_size
 
     # Context parallel
     if args.context_parallel_size > 1:
@@ -783,7 +840,6 @@ def _add_transformer_engine_args(parser):
     group.add_argument('--fp8-param-gather', action='store_true',
                        help='Keep the compute param in fp8 (do not use any other intermediate '
                             'dtype) and perform the param all-gather in fp8.')
-
     return parser
 
 def _add_inference_args(parser):
@@ -810,7 +866,9 @@ def _add_inference_args(parser):
                        'Bert embedder.')
     group.add_argument('--flash-decode', default=False, action="store_true",
                        help='Whether to use the flash decoding kernel.')
-
+    group.add_argument('--inference-max-seq-length', type=int, default=2560,
+                       help='Maximum sequence length allocated for prefill during inference.',
+                       dest='inference_max_seq_length')
     return parser
 
 
@@ -1158,6 +1216,9 @@ def _add_training_args(parser):
     group.add_argument('--no-check-for-nan-in-loss-and-grad', action='store_false',
                        help='Check for NaNs in loss and grad',
                        dest='check_for_nan_in_loss_and_grad')
+    group.add_argument('--check-for-spiky-loss', action='store_true',
+                       help='Check for spiky loss',
+                       dest='check_for_spiky_loss')
     group.add_argument('--distribute-saved-activations',
                        action='store_true',
                        help='If set, distribute recomputed activations '
@@ -1349,6 +1410,24 @@ def _add_training_args(parser):
     group.add_argument('--disable-tp-comm-split-rs', action='store_false',
                        help='Disables the Reduce-Scatter overlap with fprop GEMM.',
                        dest='tp_comm_split_rs')
+
+    return parser
+
+
+def _add_rerun_machine_args(parser):
+    group = parser.add_argument_group(title='rerun engine')
+
+    group.add_argument('--error-injection-rate', type=int, default=0,
+                       help='Rate at which to inject unexpected results, '
+                       'e.g. 1000 means once every 1000 result validations')
+    group.add_argument('--error-injection-type', type=str, default='transient_error',
+                       choices=['correct_result', 'transient_error', 'persistent_error'],
+                       help='Type of error to inject. ')
+    group.add_argument('--rerun-mode', type=str, default='disabled',
+                       choices=['disabled', 'validate_results', 'report_stats'],
+                       help='Use re-run engine to validate results (default) '
+                       'or to emit stats on variability of computations due to '
+                       'non-deterministic algorithms.')
 
     return parser
 
@@ -1667,6 +1746,8 @@ def _add_distributed_args(parser):
                        'affects the encoder embedding.)')
     group.add_argument('--use-distributed-optimizer', action='store_true',
                        help='Use distributed optimizer.')
+    group.add_argument('--num-distributed-optimizer-instances', type=int, default=1,
+                       help='Number of Distributed Optimizer copies across Data Parallel domain.')
     group.add_argument('--use-torch-fsdp2', action='store_true',
                        help="Use the torch FSDP2 implementation. FSDP2 is not currently working with Pipeline Parallel."
                        "It is still not in a stable release stage, and may therefore contain bugs or other potential issues.")
@@ -1780,6 +1861,17 @@ def _add_data_args(parser):
     group.add_argument('--test-data-path', nargs='*', default=None,
                        help='The weight and prefix list for an independent test dataset. '
                        'Follows the same pattern rules as --data-path.')
+    group.add_argument('--data-args-path', type=str, default=None,
+                       help='Path to data-args. Instead of feeding `--data-path` '
+                       'with weighted dataset, we pass in a file path from which '
+                       'we read that argument. This is useful when the list of data is '
+                       'too big.')
+    group.add_argument('--per-split-data-args-path', type=str, default=None,
+                       help='Path to per-split-data-args. Instead of feeding '
+                       '`--(train|valid|test)-data-path` with weighted dataset, '
+                       'we pass in a file path from which we read those arguments. '
+                       'This is useful when the list of data is too big. Format is a '
+                       'json file with `train`, `valid, `test` keys')
     group.add_argument('--data-cache-path', default=None,
                        help='Path to a directory to hold cached index files.')
     group.add_argument('--no-mmap-bin-files', action='store_false',
@@ -1972,6 +2064,17 @@ def _add_moe_args(parser):
                        help='Degree of expert model parallelism. Default is None, which will be set to the value of --tensor-model-paralle-size.')
     group.add_argument('--num-experts', type=int, default=None,
                        help='Number of Experts in MoE (None means no MoE)')
+    group.add_argument('--moe-layer-freq', type=moe_freq_type, default=1,
+                       help='Frequency between MoE layers and Dense layers. Accepts either: '
+                            '- An integer N: Represents a 1:N ratio, meaning one expert layer for every N-1 dense layers '
+                            '- A string containing a Python list expression that defines a custom pattern, e.g.: '
+                            '"([1]*3+[0]*1)*3" evaluates to [1,1,1,0,1,1,1,0,1,1,1,0] '
+                            'where 1 indicates an expert layer and 0 indicates a dense layer. '
+                            'Examples: "([0]+[1]*23)": 1 dense layer followed by 23 experts layers, '
+                            '"([1]*3+[0]*2)*2": Three expert layers followed by two dense layers, repeated twice.')
+    group.add_argument('--moe-ffn-hidden-size', type=int, default=None,
+                       help='The hidden size of each expert\'s feed-forward network (ffn). '
+                       'If not specified, defaults to the ffn_hidden_size.')
     group.add_argument('--moe-shared-expert-intermediate-size', type=int, default=None,
                        help='Shared expert total ffn hidden size. '
                        'It should be equal to "num_shared_experts * ffn_size_of_each_shared_expert" if there are multiple shared experts. '
