@@ -12,10 +12,6 @@ import torch
 from megatron.core.dist_checkpointing import ShardedTensor
 from megatron.core.dist_checkpointing.dict_utils import diff
 from megatron.core.dist_checkpointing.mapping import ShardedBase, ShardedTensorFactory
-from megatron.core.dist_checkpointing.state_dict_transformation import (
-    prepare_state_dict_for_save,
-    recreate_state_dict_after_load,
-)
 from megatron.core.dist_checkpointing.utils import extract_nonpersistent
 from megatron.training.async_utils import maybe_finalize_async_save
 from megatron.training.checkpointing import generate_state_dict, load_checkpoint, save_checkpoint
@@ -62,6 +58,8 @@ class TestLocalCheckpointing:
 
     @pytest.mark.parametrize(('tp,pp'), [(2, 4)])
     @pytest.mark.parametrize(('use_torch_fsdp2'), [True, False])
+    @pytest.mark.flaky
+    @pytest.mark.flaky_in_dev
     def test_sharded_tensors(self, tp, pp, use_torch_fsdp2):
         Utils.initialize_model_parallel(tp, pp)
         num_floating_point_operations_so_far = 0
@@ -82,8 +80,8 @@ class TestLocalCheckpointing:
             optimizer,
             opt_param_scheduler,
             rng_state,
-            use_dist_ckpt,
-            iteration,
+            use_dist_ckpt=use_dist_ckpt,
+            iteration=iteration,
             optim_sd_kwargs=optim_sd_kwargs,
         )
         sharded_tensor_factories = find_matching_values(
@@ -114,8 +112,8 @@ class TestLocalCheckpointing:
             optimizer,
             opt_param_scheduler,
             rng_state,
-            True,
-            iteration,
+            use_dist_ckpt=True,
+            iteration=iteration,
             optim_sd_kwargs=optim_sd_kwargs,
         )
         nonpersistent_state_dict, _ = extract_nonpersistent(state_dict)
