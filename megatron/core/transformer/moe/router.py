@@ -202,15 +202,11 @@ class TopKRouter(Router):
         else:
             sequence_partition_group = parallel_state.get_tensor_and_context_parallel_group()
 
-        # Ensure that the batch_tokens_per_expert is on the same device as the num_local_tokens_per_expert
-        # if (
-        #     self.batch_tokens_per_expert is not None and
-        #     self.batch_tokens_per_expert.device != num_local_tokens_per_expert.device
-        # ):
-        #     self.batch_tokens_per_expert = self.batch_tokens_per_expert.to(num_local_tokens_per_expert.device)
         token_counts = None
+        microbatch = None
         if self.config.moe_aux_loss_reduce_token_counts:
             token_counts = self.token_counts
+            microbatch = self.microbatch_tracker.microbatch
 
         aux_loss = switch_load_balancing_loss_func(
             probs,
@@ -220,6 +216,7 @@ class TopKRouter(Router):
             sequence_partition_group=sequence_partition_group,
             reduce_token_counts=self.config.moe_aux_loss_reduce_token_counts,
             batch_tokens_per_expert=token_counts,
+            microbatch=microbatch,
         )
         save_to_aux_losses_tracker(
             "load_balancing_loss",

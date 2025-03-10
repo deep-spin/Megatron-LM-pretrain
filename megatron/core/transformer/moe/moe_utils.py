@@ -17,6 +17,7 @@ def switch_load_balancing_loss_func(
     sequence_partition_group=None,
     reduce_token_counts: bool = False,
     batch_tokens_per_expert: Optional[torch.Tensor] = None,
+    microbatch: Optional[int] = None,
 ):
     """Calculate the auxiliary loss for load balancing.
     Refer to the Switch Transformer paper (https://arxiv.org/abs/2101.03961) for details.
@@ -40,6 +41,7 @@ def switch_load_balancing_loss_func(
         torch.Tensor: The auxiliary loss for load balancing.
     """
     num_sub_sequence = 1
+    num_microbatch = 1
 
     # If the sequence is partitioned by certain parallelism strategies like Sequence Parallelism
     # or Context Parallelism, compute the gradient of the auxiliary loss with respect to the full
@@ -59,6 +61,8 @@ def switch_load_balancing_loss_func(
         batch_tokens_per_expert.add_(tokens_per_expert)
 
         load_tokens_per_expert = batch_tokens_per_expert
+        # Add 1 because microbatches start at 0.
+        num_microbatch = microbatch + 1
 
     num_tokens = probs.shape[0] * num_sub_sequence
     num_experts = probs.shape[1]
@@ -66,9 +70,11 @@ def switch_load_balancing_loss_func(
     # The formula of aux_loss: aux_loss = sum((probs_per_expert/num_tokens) *
     # (tokens_per_expert/(num_tokens*topk))) * num_experts * moe_aux_loss_coeff.
     # This can be simplified to fuse the division and multiplication operations.
+    # When reducing the token counts, we need to scale the auxiliary loss by the number of
+    # microbatches to account for adding the tokens from the previous batch.
     aggregated_probs_per_expert = probs.sum(dim=0)
     aux_loss = torch.sum(aggregated_probs_per_expert * load_tokens_per_expert) * (
-        num_experts * moe_aux_loss_coeff / (num_tokens * num_tokens * topk)
+        num_experts * moe_aux_loss_coeff / (num_tokens * num_tokens * num_microbatch * topk)
     )
     return aux_loss
 

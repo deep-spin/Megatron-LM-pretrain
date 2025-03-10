@@ -529,3 +529,7 @@ class MicroBatchTracker:
 
     def next(self):
         self.microbatch_count += 1
+
+    @property
+    def microbatch(self):
+        return self.microbatch_count % get_num_microbatches()

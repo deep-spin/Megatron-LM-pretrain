@@ -24,14 +24,14 @@ regularization:
     weight_decay: 0.1
 training:
     micro_batch_size: 4
-    global_batch_size: 128
+    global_batch_size: 256
 learning_rate:
     lr: 3e-4
     lr_decay_style: constant
     lr_warmup_iters: 1192
 checkpointing:
     save: ./${launch.run_dir}/checkpoints/
-    save_interval: 1000
+    save_interval: 2000
     load: ${checkpointing.save}
     annealing: False
 validation:
@@ -47,4 +47,4 @@ data:
         - 52 ./local/data/Dataset.en_wiki/data_bin/data_text_document
     tokenizer_type: PretrainedFromHF
     tokenizer_model: ./local/tokenizers/eurollm-tokenizer
-    train_iters: 10000
+    train_iters: 20000
