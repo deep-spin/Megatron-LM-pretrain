@@ -190,7 +190,12 @@ def convert_mcore2hf(args):
 
     print("> Converting final_layernorm and lm_head")
     convert_mcore2hf_final_layernorm_and_lm_head(
-        hf_sd, mcore_sds, tp_size=tp_size, ep_size=ep_size, dtype=dtype,
+        hf_sd,
+        mcore_sds,
+        tp_size=tp_size,
+        ep_size=ep_size,
+        dtype=dtype,
+        tie_word_embeddings=hf_config.tie_word_embeddings,
     )
 
     for layer_idx in range(hf_config.num_hidden_layers):
@@ -262,6 +267,9 @@ def convert_mcore2hf(args):
     if hf_config.vocab_size is None:
         hf_config.vocab_size = found_vocab_size
     assert hf_config.vocab_size == found_vocab_size
+
+    if hf_config.tie_word_embeddings:
+        hf_sd["lm_head.weight"] = hf_sd["model.embed_tokens.weight"]
 
     print(f"> Creating HF model")
     os.makedirs(args.hf_save_dir, exist_ok=True)
@@ -356,7 +364,6 @@ def get_hf_config(margs):
     assert margs.position_embedding_type == "rope"
     assert margs.normalization == "RMSNorm"
     assert margs.swiglu
-    assert margs.untie_embeddings_and_output_weights
     assert not margs.add_bias_linear
 
     hf_config = MixtralConfig(
@@ -371,6 +378,7 @@ def get_hf_config(margs):
         num_local_experts=margs.num_experts,
         num_experts_per_tok=margs.moe_router_topk,
         router_aux_loss_coef=margs.moe_aux_loss_coeff,
+        tie_word_embeddings=not margs.untie_embeddings_and_output_weights,
     )
     return hf_config
 
@@ -413,7 +421,7 @@ def convert_hf2mcore_final_layernorm_and_lm_head(
         mcore_sds[-1][ep_rank][tp_rank]["output_layer._extra_state"] = None
 
 
-def convert_mcore2hf_final_layernorm_and_lm_head(hf_sd, mcore_sds, *, tp_size, ep_size, dtype):
+def convert_mcore2hf_final_layernorm_and_lm_head(hf_sd, mcore_sds, *, tp_size, ep_size, dtype, tie_word_embeddings):
     final_layernorms = []
     lm_head_shards = []
 
@@ -426,18 +434,21 @@ def convert_mcore2hf_final_layernorm_and_lm_head(hf_sd, mcore_sds, *, tp_size, e
             final_layernorm = mcore_sds[-1][ep_rank][tp_rank].pop(mcore_layernorm_name)
             final_layernorms.append(final_layernorm)
 
-            lm_head_shard = mcore_sds[-1][ep_rank][tp_rank].pop(mcore_output_name)
-            _ = mcore_sds[-1][ep_rank][tp_rank].pop(mcore_output_extra)
-            ep_lm_head_shards.append(lm_head_shard)
+            if not tie_word_embeddings:
+                lm_head_shard = mcore_sds[-1][ep_rank][tp_rank].pop(mcore_output_name)
+                _ = mcore_sds[-1][ep_rank][tp_rank].pop(mcore_output_extra)
+                ep_lm_head_shards.append(lm_head_shard)
 
-        assert all([ep_lm_head_shards[0].equal(shard) for shard in ep_lm_head_shards])
-        lm_head_shards.append(ep_lm_head_shards[0])
+        if not tie_word_embeddings:
+            assert all([ep_lm_head_shards[0].equal(shard) for shard in ep_lm_head_shards])
+            lm_head_shards.append(ep_lm_head_shards[0])
 
     assert all([final_layernorms[0].equal(norm) for norm in final_layernorms])
     hf_sd["model.norm.weight"] = final_layernorms[0].to(dtype)
 
-    lm_head = torch.cat(lm_head_shards, dim=0)
-    hf_sd["lm_head.weight"] = lm_head.to(dtype)
+    if not tie_word_embeddings:
+        lm_head = torch.cat(lm_head_shards, dim=0)
+        hf_sd["lm_head.weight"] = lm_head.to(dtype)
 
 
 def convert_hf2mcore_attn_norm(mcore_sds, hf_sd, layer_info, *, tp_size, ep_size, dtype):

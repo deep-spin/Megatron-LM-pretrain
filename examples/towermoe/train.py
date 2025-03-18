@@ -16,6 +16,8 @@ class NetworkSizeArgs:
     num_attention_heads: int
     # Use group query attention if num_query_groups != num_attention_heads
     num_query_groups: int
+    rotary_base: int
+    tie_embeddings: bool
 
 
 @dataclasses.dataclass(frozen=True)
@@ -167,7 +169,7 @@ def main(
         loader=jinja2.FileSystemLoader(templates_dir),
         undefined=jinja2.StrictUndefined,
     )
-    script = "train.sbatch.old"
+    script = "train.sbatch"
     template = jinja_env.get_template(f"{script}.j2")
 
     run_dir = os.path.abspath(launch.run_dir)

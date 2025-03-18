@@ -41,10 +41,12 @@ NETWORK_SIZE_ARGS="\
     --swiglu \
     --normalization RMSNorm \
     --position-embedding-type rope \
+    {%- if not network_size.tie_embeddings %}
     --untie-embeddings-and-output-weights \
+    {%- endif %}
     --no-masked-softmax-fusion \
     --no-position-embedding \
-    --rotary-base 10000 \
+    --rotary-base {{ network_size.rotary_base }} \
     --disable-bias-linear"
 
 TENSORBOARD_DIR={{ launch.run_dir }}/tensorboard
@@ -79,6 +81,8 @@ REGULARIZATION_ARGS="\
 TRAINING_ARGS="\
     --micro-batch-size {{ training.micro_batch_size }} \
     --global-batch-size {{ training.global_batch_size }} \
+    --init-method-std 0.006 \
+    --seed 42 \
     "
 
 LEARNING_RATE_ARGS="\
