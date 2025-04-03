@@ -1,7 +1,7 @@
 launch:
     job_name: "towermoe-400M-2.1B"
     run_dir: ./local/fast_runs/towermoe-400M-2.1B/
-    num_nodes: 64
+    num_nodes: 128
     gpus_per_node: 4
     exclusive: True
 network_size:

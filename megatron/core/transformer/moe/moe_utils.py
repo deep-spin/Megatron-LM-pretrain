@@ -54,6 +54,10 @@ def switch_load_balancing_loss_func(
 
     load_tokens_per_expert = tokens_per_expert
 
+    num_tokens = probs.shape[0] * num_sub_sequence
+    num_experts = probs.shape[1]
+    num_tokens_reduced = num_tokens
+
     if reduce_token_counts:
         torch.distributed.all_reduce(
             tokens_per_expert, op=torch.distributed.ReduceOp.SUM, group=parallel_state.get_data_parallel_group(),
@@ -63,18 +67,17 @@ def switch_load_balancing_loss_func(
         load_tokens_per_expert = batch_tokens_per_expert
         # Add 1 because microbatches start at 0.
         num_microbatch = microbatch + 1
-
-    num_tokens = probs.shape[0] * num_sub_sequence
-    num_experts = probs.shape[1]
+        # When reducing the token counts, we need to scale the auxiliary loss by the number of
+        # microbatches to account for adding the tokens from the previous batch, as well as
+        # the data parallel size.
+        num_tokens_reduced = num_tokens * parallel_state.get_data_parallel_world_size() * num_microbatch
 
     # The formula of aux_loss: aux_loss = sum((probs_per_expert/num_tokens) *
     # (tokens_per_expert/(num_tokens*topk))) * num_experts * moe_aux_loss_coeff.
     # This can be simplified to fuse the division and multiplication operations.
-    # When reducing the token counts, we need to scale the auxiliary loss by the number of
-    # microbatches to account for adding the tokens from the previous batch.
     aggregated_probs_per_expert = probs.sum(dim=0)
     aux_loss = torch.sum(aggregated_probs_per_expert * load_tokens_per_expert) * (
-        num_experts * moe_aux_loss_coeff / (num_tokens * num_tokens * num_microbatch * topk)
+        num_experts * moe_aux_loss_coeff / (num_tokens * num_tokens_reduced * topk)
     )
     return aux_loss
 
