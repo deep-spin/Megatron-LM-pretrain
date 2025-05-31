@@ -83,6 +83,9 @@ TRAINING_ARGS="\
     --global-batch-size {{ training.global_batch_size }} \
     --init-method-std 0.006 \
     --seed 42 \
+    {%- if training.recompute_granularity %}
+    --recompute-granularity {{ training.recompute_granularity }} \
+    {%- endif %}
     "
 
 LEARNING_RATE_ARGS="\

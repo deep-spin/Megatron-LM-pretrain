@@ -42,6 +42,7 @@ class RegularizationArgs:
 class TrainingArgs:
     micro_batch_size: int
     global_batch_size: int
+    recompute_granularity: Optional[str] = None
 
 
 @dataclasses.dataclass(frozen=True)
@@ -144,6 +145,7 @@ def main(
     moe: MoEArgs,
     singularity: SingularityArgs,
     launch: LaunchArgs,
+    skip_launch: bool = False,
 ):
     megatron_dir = os.path.abspath(os.path.join(__file__, "..", "..", ".."))
 
@@ -186,7 +188,10 @@ def main(
         print(f"Saving checkpoints to {checkpointing.save}")
         os.makedirs(checkpointing.save, exist_ok=True)
 
-    os.system(f"sbatch -v {run_dir}/{script}")
+    if skip_launch:
+        print("Skipping launch")
+    else:
+        os.system(f"sbatch -v {run_dir}/{script}")
 
 def _build_launch_cfg(launch_args: LaunchArgs) -> dict[str, Any]:
     run_dir = os.path.abspath(launch_args.run_dir)

@@ -1,4 +1,5 @@
 # Copyright (c) 2023, NVIDIA CORPORATION. All rights reserved.
+import torch
 
 from collections import OrderedDict
 from typing import Dict, Literal, Optional
@@ -16,6 +17,7 @@ from megatron.core.transformer.enums import ModelType
 from megatron.core.transformer.spec_utils import ModuleSpec
 from megatron.core.transformer.transformer_block import TransformerBlock
 from megatron.core.transformer.transformer_config import TransformerConfig
+from megatron.training import get_args
 
 
 class GPTModel(LanguageModule):
@@ -187,7 +189,7 @@ class GPTModel(LanguageModule):
         decoder_input: Tensor = None,
         labels: Tensor = None,
         inference_params: InferenceParams = None,
-        packed_seq_params: PackedSeqParams = None,
+        packed_seq_params: Optional[PackedSeqParams] = None,
         extra_block_kwargs: dict = None,
         runtime_gather_output: Optional[bool] = None,
     ) -> Tensor:
@@ -213,6 +215,25 @@ class GPTModel(LanguageModule):
             # intermediate stage of pipeline
             # decoder will get hidden_states from encoder.input_tensor
             decoder_input = None
+
+        # ============================
+        # Build packed sequence params
+        # ============================
+        if get_args().reset_attention_mask:
+            assert packed_seq_params is None, "packed_seq_params should be None when reset_attention_mask is True"
+            cu_seqlens_q = [0]
+            for i, batch in enumerate(attention_mask):
+                for seq in batch:
+                    cu_seqlens_q.extend((torch.argwhere(seq.diagonal(offset=-1)) + 1 + i*seq.shape[0]).flatten().tolist() + [seq.shape[0] * (i+1)]) 
+            cu_seqlens_q = torch.Tensor(cu_seqlens_q).int().to(input_ids.device)
+            max_seqlen_q = (cu_seqlens_q[1:] - cu_seqlens_q[:-1]).max()
+            packed_seq_params = PackedSeqParams(
+                qkv_format="thd",
+                cu_seqlens_q=cu_seqlens_q,
+                cu_seqlens_kv=cu_seqlens_q,
+                max_seqlen_q=max_seqlen_q,
+                max_seqlen_kv=max_seqlen_q,
+            )
 
         # Rotary positional embeddings (embedding is None for PP intermediate devices)
         rotary_pos_emb = None

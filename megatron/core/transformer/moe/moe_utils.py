@@ -33,8 +33,8 @@ def switch_load_balancing_loss_func(
                                              partitioned. If None, no partitioning is applied.
                                              Defaults to None.
         reduce_token_counts (bool, optional): Whether to reduce expert-token counts across the
-                                              microbatches before calculating the auxiliary loss, 
-                                              as proposed in https://arxiv.org/abs/2501.11873. 
+                                              microbatches before calculating the auxiliary loss,
+                                              as proposed in https://arxiv.org/abs/2501.11873.
                                               Defaults to False.
 
     Returns:
@@ -62,7 +62,7 @@ def switch_load_balancing_loss_func(
         torch.distributed.all_reduce(
             tokens_per_expert, op=torch.distributed.ReduceOp.SUM, group=parallel_state.get_data_parallel_group(),
         )
-        batch_tokens_per_expert.add_(tokens_per_expert)
+        batch_tokens_per_expert = batch_tokens_per_expert + tokens_per_expert
 
         load_tokens_per_expert = batch_tokens_per_expert
         # Add 1 because microbatches start at 0.
@@ -79,7 +79,7 @@ def switch_load_balancing_loss_func(
     aux_loss = torch.sum(aggregated_probs_per_expert * load_tokens_per_expert) * (
         num_experts * moe_aux_loss_coeff / (num_tokens * num_tokens_reduced * topk)
     )
-    return aux_loss
+    return aux_loss, batch_tokens_per_expert
 
 
 def z_loss_func(logits, z_loss_coeff):

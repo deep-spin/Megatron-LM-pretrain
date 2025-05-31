@@ -1,0 +1,11 @@
+launch:
+    job_name: "mcore2hf-towermoe-5.4B-32B"
+    run_dir: ./local/fast_runs/towermoe-5.4B-32B/
+checkpointing:
+    megatron_ckpts_dir: ./${launch.run_dir}/checkpoints/
+    hf_ckpts_dir: ./${launch.run_dir}/hf-train-checkpoints/
+    hf_tokenizer_path: ./local/tokenizers/eurollm-tokenizer
+distributed:
+    tensor_model_parallel_size: 1
+    pipeline_model_parallel_size: 4
+    expert_model_parallel_size: 4

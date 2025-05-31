@@ -208,7 +208,7 @@ class TopKRouter(Router):
             token_counts = self.token_counts
             microbatch = self.microbatch_tracker.microbatch
 
-        aux_loss = switch_load_balancing_loss_func(
+        aux_loss, updated_token_counts = switch_load_balancing_loss_func(
             probs,
             num_local_tokens_per_expert,
             self.topk,
@@ -218,6 +218,8 @@ class TopKRouter(Router):
             batch_tokens_per_expert=token_counts,
             microbatch=microbatch,
         )
+        if self.config.moe_aux_loss_reduce_token_counts:
+            self.token_counts = updated_token_counts
         save_to_aux_losses_tracker(
             "load_balancing_loss",
             aux_loss / moe_aux_loss_coeff,
@@ -333,4 +335,4 @@ class TopKRouter(Router):
 
     def _prepare_token_counts_buffer(self, *_):
         if self.microbatch_tracker.is_first_microbatch():
-            self.token_counts.zero_()
+            self.token_counts = torch.zeros_like(self.token_counts)
