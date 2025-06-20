@@ -42,6 +42,8 @@ class RegularizationArgs:
 class TrainingArgs:
     micro_batch_size: int
     global_batch_size: int
+    reset_attention_mask: bool = False
+    reset_position_ids: bool = False
     recompute_granularity: Optional[str] = None
 
 

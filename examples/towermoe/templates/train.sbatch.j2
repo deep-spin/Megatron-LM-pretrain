@@ -83,6 +83,12 @@ TRAINING_ARGS="\
     --global-batch-size {{ training.global_batch_size }} \
     --init-method-std 0.006 \
     --seed 42 \
+    {%- if training.reset_position_ids %}
+    --reset-position-ids \
+    {%- endif %}
+    {%- if training.reset_attention_mask %}
+    --reset-attention-mask \
+    {%- endif %}
     {%- if training.recompute_granularity %}
     --recompute-granularity {{ training.recompute_granularity }} \
     {%- endif %}

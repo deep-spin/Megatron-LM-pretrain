@@ -1,0 +1,202 @@
+launch:
+    job_name: "towermoe-400M-2.1B"
+    run_dir: ./local/fast_runs/towermoe-400M-2.1B/
+    num_nodes: 128
+    gpus_per_node: 4
+    exclusive: True
+network_size:
+    num_layers: 24
+    hidden_size: 1024
+    ffn_hidden_size: 512
+    num_attention_heads: 8
+    num_query_groups: 2
+    max_position_embeddings: 4096
+    rotary_base: 500000
+    tie_embeddings: True
+moe:
+    num_experts: 64
+    expert_model_parallel_size: 1
+    moe_router_topk: 8
+    moe_aux_loss_reduce_token_counts: True
+logging:
+    log_params_norm: True
+    log_throughput: True
+    log_progress: True
+regularization:
+    weight_decay: 0.1
+training:
+    micro_batch_size: 4
+    global_batch_size: 4096
+learning_rate:
+    lr: 3e-5
+    min_lr: 0
+    lr_decay_style: WSD
+    lr_wsd_decay_style: linear
+    lr_wsd_decay_iters: 6675
+    lr_warmup_iters: 0
+checkpointing:
+    save: ./${launch.run_dir}/super-annealing-checkpoints/
+    save_interval: 2500
+    load: ${checkpointing.save}
+    pretrained_checkpoint: ./${launch.run_dir}/annealing-checkpoints/
+    annealing: True
+validation:
+    eval_interval: 1000
+    eval_iters: 10
+distributed:
+    tensor_model_parallel_size: 1
+    pipeline_model_parallel_size: 1
+    distributed_optimizer: true
+data:
+    seq_length: ${network_size.max_position_embeddings}
+    data_path:
+        - 264 ./local/new-data/Dataset.nemotron_3/data_bin/data_text_document
+        - 325 ./local/new-data/Dataset.en_wiki/data_bin/data_text_document
+        - 975 ./local/new-data/Dataset.cosmopedia_en/data_bin/data_text_document
+        - 100 ./local/new-data/Dataset.de_wiki/data_bin/data_text_document
+        - 5 ./local/new-annealing-data/Dataset.en_de/annealing_data_bin/data_text_document
+        - 20 ./local/new-data/Dataset.en_de_doc/data_bin/data_text_document
+        - 125 ./local/new-data/Dataset.de_phase_3/data_bin/data_text_document
+        - 250 ./local/new-data/Dataset.cosmopedia_de/data_bin/data_text_document
+        - 100 ./local/new-data/Dataset.es_wiki/data_bin/data_text_document
+        - 5 ./local/new-annealing-data/Dataset.en_es/annealing_data_bin/data_text_document
+        - 20 ./local/new-data/Dataset.en_es_doc/data_bin/data_text_document
+        - 125 ./local/new-data/Dataset.es_phase_3/data_bin/data_text_document
+        - 250 ./local/new-data/Dataset.cosmopedia_es/data_bin/data_text_document
+        - 100 ./local/new-data/Dataset.fr_wiki/data_bin/data_text_document
+        - 5 ./local/new-annealing-data/Dataset.en_fr/annealing_data_bin/data_text_document
+        - 20 ./local/new-data/Dataset.en_fr_doc/data_bin/data_text_document
+        - 125 ./local/new-data/Dataset.fr_phase_3/data_bin/data_text_document
+        - 250 ./local/new-data/Dataset.cosmopedia_fr/data_bin/data_text_document
+        - 100 ./local/new-data/Dataset.it_wiki/data_bin/data_text_document
+        - 5 ./local/new-annealing-data/Dataset.en_it/annealing_data_bin/data_text_document
+        - 20 ./local/new-data/Dataset.en_it_doc/data_bin/data_text_document
+        - 125 ./local/new-data/Dataset.it_phase_3/data_bin/data_text_document
+        - 250 ./local/new-data/Dataset.cosmopedia_it/data_bin/data_text_document
+        - 60 ./local/new-data/Dataset.pt_wiki/data_bin/data_text_document
+        - 3 ./local/new-annealing-data/Dataset.en_pt/annealing_data_bin/data_text_document
+        - 12 ./local/new-data/Dataset.en_pt_doc/data_bin/data_text_document
+        - 75 ./local/new-data/Dataset.pt_phase_3/data_bin/data_text_document
+        - 150 ./local/new-data/Dataset.cosmopedia_pt/data_bin/data_text_document
+        - 60 ./local/new-data/Dataset.zh_wiki/data_bin/data_text_document
+        - 15 ./local/new-annealing-data/Dataset.en_zh/annealing_data_bin/data_text_document
+        - 75 ./local/new-data/Dataset.zh_phase_3/data_bin/data_text_document
+        - 150 ./local/new-data/Dataset.cosmopedia_zh/data_bin/data_text_document
+        - 50 ./local/new-data/Dataset.ru_wiki/data_bin/data_text_document
+        - 10 ./local/new-annealing-data/Dataset.en_ru/annealing_data_bin/data_text_document
+        - 50 ./local/new-data/Dataset.ru_phase_3/data_bin/data_text_document
+        - 100 ./local/new-data/Dataset.cosmopedia_ru/data_bin/data_text_document
+        - 100 ./local/new-data/Dataset.pl_wiki/data_bin/data_text_document
+        - 2 ./local/new-annealing-data/Dataset.en_pl/annealing_data_bin/data_text_document
+        - 8 ./local/new-data/Dataset.en_pl_doc/data_bin/data_text_document
+        - 90 ./local/new-data/Dataset.pl_phase_3/data_bin/data_text_document
+        - 40 ./local/new-data/Dataset.nl_wiki/data_bin/data_text_document
+        - 2 ./local/new-annealing-data/Dataset.en_nl/annealing_data_bin/data_text_document
+        - 8 ./local/new-data/Dataset.en_nl_doc/data_bin/data_text_document
+        - 50 ./local/new-data/Dataset.nl_phase_3/data_bin/data_text_document
+        - 100 ./local/new-data/Dataset.cosmopedia_nl/data_bin/data_text_document
+        - 25 ./local/new-data/Dataset.hi_wiki/data_bin/data_text_document
+        - 3 ./local/new-annealing-data/Dataset.en_hi/annealing_data_bin/data_text_document
+        - 23 ./local/new-data/Dataset.hi_phase_3/data_bin/data_text_document
+        - 80 ./local/new-data/Dataset.ar_wiki/data_bin/data_text_document
+        - 5 ./local/new-annealing-data/Dataset.en_ar/annealing_data_bin/data_text_document
+        - 15 ./local/new-data/Dataset.ar_phase_3/data_bin/data_text_document
+        - 150 ./local/new-data/Dataset.ja_wiki/data_bin/data_text_document
+        - 10 ./local/new-annealing-data/Dataset.en_ja/annealing_data_bin/data_text_document
+        - 40 ./local/new-data/Dataset.ja_phase_3/data_bin/data_text_document
+        - 20 ./local/new-data/Dataset.tr_wiki/data_bin/data_text_document
+        - 5 ./local/new-annealing-data/Dataset.en_tr/annealing_data_bin/data_text_document
+        - 75 ./local/new-data/Dataset.tr_phase_3/data_bin/data_text_document
+        - 55 ./local/new-data/Dataset.sv_wiki/data_bin/data_text_document
+        - 1 ./local/new-annealing-data/Dataset.en_sv/annealing_data_bin/data_text_document
+        - 4 ./local/new-data/Dataset.en_sv_doc/data_bin/data_text_document
+        - 40 ./local/new-data/Dataset.sv_phase_3/data_bin/data_text_document
+        - 55 ./local/new-data/Dataset.ko_wiki/data_bin/data_text_document
+        - 5 ./local/new-annealing-data/Dataset.en_ko/annealing_data_bin/data_text_document
+        - 40 ./local/new-data/Dataset.ko_phase_3/data_bin/data_text_document
+        - 60 ./local/new-data/Dataset.cs_wiki/data_bin/data_text_document
+        - 1 ./local/new-annealing-data/Dataset.en_cs/annealing_data_bin/data_text_document
+        - 4 ./local/new-data/Dataset.en_cs_doc/data_bin/data_text_document
+        - 35 ./local/new-data/Dataset.cs_phase_3/data_bin/data_text_document
+        - 15 ./local/new-data/Dataset.el_wiki/data_bin/data_text_document
+        - 3 ./local/new-annealing-data/Dataset.en_el/annealing_data_bin/data_text_document
+        - 38 ./local/new-data/Dataset.el_phase_3/data_bin/data_text_document
+        - 10 ./local/new-data/Dataset.hu_wiki/data_bin/data_text_document
+        - 1 ./local/new-annealing-data/Dataset.en_hu/annealing_data_bin/data_text_document
+        - 2 ./local/new-data/Dataset.en_hu_doc/data_bin/data_text_document
+        - 38 ./local/new-data/Dataset.hu_phase_3/data_bin/data_text_document
+        - 10 ./local/new-data/Dataset.ro_wiki/data_bin/data_text_document
+        - 1 ./local/new-annealing-data/Dataset.en_ro/annealing_data_bin/data_text_document
+        - 2 ./local/new-data/Dataset.en_ro_doc/data_bin/data_text_document
+        - 38 ./local/new-data/Dataset.ro_phase_3/data_bin/data_text_document
+        - 8 ./local/new-data/Dataset.fi_wiki/data_bin/data_text_document
+        - 1 ./local/new-annealing-data/Dataset.en_fi/annealing_data_bin/data_text_document
+        - 1 ./local/new-data/Dataset.en_fi_doc/data_bin/data_text_document
+        - 30 ./local/new-data/Dataset.fi_phase_3/data_bin/data_text_document
+        - 12 ./local/new-data/Dataset.sk_wiki/data_bin/data_text_document
+        - 1 ./local/new-annealing-data/Dataset.en_sk/annealing_data_bin/data_text_document
+        - 1 ./local/new-data/Dataset.en_sk_doc/data_bin/data_text_document
+        - 26 ./local/new-data/Dataset.sk_phase_3/data_bin/data_text_document
+        - 8 ./local/new-data/Dataset.da_wiki/data_bin/data_text_document
+        - 1 ./local/new-annealing-data/Dataset.en_da/annealing_data_bin/data_text_document
+        - 1 ./local/new-data/Dataset.en_da_doc/data_bin/data_text_document
+        - 30 ./local/new-data/Dataset.da_phase_3/data_bin/data_text_document
+        - 12 ./local/new-data/Dataset.lt_wiki/data_bin/data_text_document
+        - 1 ./local/new-annealing-data/Dataset.en_lt/annealing_data_bin/data_text_document
+        - 1 ./local/new-data/Dataset.en_lt_doc/data_bin/data_text_document
+        - 26 ./local/new-data/Dataset.lt_phase_3/data_bin/data_text_document
+        - 8 ./local/new-data/Dataset.lv_wiki/data_bin/data_text_document
+        - 1 ./local/new-annealing-data/Dataset.en_lv/annealing_data_bin/data_text_document
+        - 1 ./local/new-data/Dataset.en_lv_doc/data_bin/data_text_document
+        - 30 ./local/new-data/Dataset.lv_phase_3/data_bin/data_text_document
+        - 8 ./local/new-data/Dataset.uk_wiki/data_bin/data_text_document
+        - 2 ./local/new-annealing-data/Dataset.en_uk/annealing_data_bin/data_text_document
+        - 30 ./local/new-data/Dataset.uk_phase_3/data_bin/data_text_document
+        - 14 ./local/new-data/Dataset.sl_wiki/data_bin/data_text_document
+        - 1 ./local/new-annealing-data/Dataset.en_sl/annealing_data_bin/data_text_document
+        - 1 ./local/new-data/Dataset.en_sl_doc/data_bin/data_text_document
+        - 24 ./local/new-data/Dataset.sl_phase_3/data_bin/data_text_document
+        - 16 ./local/new-data/Dataset.et_wiki/data_bin/data_text_document
+        - 1 ./local/new-annealing-data/Dataset.en_et/annealing_data_bin/data_text_document
+        - 1 ./local/new-data/Dataset.en_et_doc/data_bin/data_text_document
+        - 24 ./local/new-data/Dataset.et_phase_3/data_bin/data_text_document
+        - 12 ./local/new-data/Dataset.bg_wiki/data_bin/data_text_document
+        - 1 ./local/new-annealing-data/Dataset.en_bg/annealing_data_bin/data_text_document
+        - 1 ./local/new-data/Dataset.en_bg_doc/data_bin/data_text_document
+        - 26 ./local/new-data/Dataset.bg_phase_3/data_bin/data_text_document
+        - 2 ./local/new-data/Dataset.hr_wiki/data_bin/data_text_document
+        - 1 ./local/new-annealing-data/Dataset.en_hr/annealing_data_bin/data_text_document
+        - 2 ./local/new-data/Dataset.hr_phase_3/data_bin/data_text_document
+        - 1 ./local/new-data/Dataset.ga_wiki/data_bin/data_text_document
+        - 1 ./local/new-annealing-data/Dataset.en_ga/annealing_data_bin/data_text_document
+        - 3 ./local/new-data/Dataset.ga_phase_3/data_bin/data_text_document
+        - 1 ./local/new-data/Dataset.mt_wiki/data_bin/data_text_document
+        - 1 ./local/new-annealing-data/Dataset.en_mt/annealing_data_bin/data_text_document
+        - 3 ./local/new-data/Dataset.mt_phase_3/data_bin/data_text_document
+        - 2 ./local/new-data/Dataset.no_wiki/data_bin/data_text_document
+        - 1 ./local/new-annealing-data/Dataset.en_no/annealing_data_bin/data_text_document
+        - 8 ./local/new-data/Dataset.no_phase_3/data_bin/data_text_document
+        - 1 ./local/new-data/Dataset.gl_wiki/data_bin/data_text_document
+        - 1 ./local/new-annealing-data/Dataset.en_gl/annealing_data_bin/data_text_document
+        - 3 ./local/new-data/Dataset.gl_phase_3/data_bin/data_text_document
+        - 2 ./local/new-data/Dataset.ca_wiki/data_bin/data_text_document
+        - 1 ./local/new-annealing-data/Dataset.en_ca/annealing_data_bin/data_text_document
+        - 8 ./local/new-data/Dataset.ca_phase_3/data_bin/data_text_document
+        - 250 ./local/new-data/Dataset.code/data_bin/data_text_document
+        - 398 ./local/new-data/Dataset.python_edu/data_bin/data_text_document
+        - 500 ./local/new-data/Dataset.math/data_bin/data_text_document
+        - 500 ./local/new-data/Dataset.algebraic/data_bin/data_text_document
+        - 1 ./local/new-data/Dataset.gsm8k/data_bin/data_text_document
+        - 1 ./local/new-data/Dataset.math_competition/data_bin/data_text_document
+        - 600 ./local/new-data/Dataset.instruct_sp_2/data_bin/data_text_document
+        - 346 ./local/new-data/Dataset.mmlu_like_humanities/data_bin/data_text_document
+        - 496 ./local/new-data/Dataset.mmlu_like_others/data_bin/data_text_document
+        - 427 ./local/new-data/Dataset.mmlu_like_social_sciences/data_bin/data_text_document
+        - 416 ./local/new-data/Dataset.mmlu_like_stem/data_bin/data_text_document
+        - 7500 ./local/new-long-data/Dataset.stack-v2-dedup-filtered-500-stars-100-forks/data_bin/data_text_document
+        - 7500 ./local/new-data/Dataset.en_books/data_bin/data_text_document
+        - 125 ./local/new-long-data/Dataset.like_niah/data_bin/data_text_document
+        - 2804 ./local/new-data/Dataset.finemath_fw45/data_bin/data_text_document
+    tokenizer_type: PretrainedFromHF
+    tokenizer_model: ./local/tokenizers/eurollm-tokenizer
+    train_iters: 6675

@@ -272,9 +272,13 @@ class Attention(MegatronModule, ABC):
         )
 
         if packed_seq_params is not None:
-            query = query.squeeze(1)
-            key = key.squeeze(1)
-            value = value.squeeze(1)
+            # query = query.squeeze(1)
+            # key = key.squeeze(1)
+            # value = value.squeeze(1)
+            # TODO: test me, do not trust this code
+            query = query.reshape(-1, query.shape[-2], query.shape[-1])
+            key = key.reshape(-1, key.shape[-2], key.shape[-1])
+            value = value.reshape(-1, value.shape[-2], value.shape[-1])
 
         # ================================================
         # relative positional embedding (rotary embedding)
